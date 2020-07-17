@@ -5,6 +5,23 @@ type task<T> = {
     done: boolean
 }
 
+export class serializeTransaction<T> {
+    constructor(private _operator: serializeOperator<T>) {
+    }
+
+    commit() {
+        this._operator.commit()
+    }
+
+    rollback() {
+        return this._operator.rollback()
+    }
+
+    deal(data: T) {
+        return this._operator.deal(data, true)
+    }
+}
+
 export abstract class serializeOperator<T> {
     private _taskList: task<T>[] = []
     private _resolved: boolean = true
@@ -42,6 +59,7 @@ export abstract class serializeOperator<T> {
         this._transactionPromise = new Promise((resolve, reject) => {
             this._transactionResolve = resolve
         })
+        return new serializeTransaction<T>(this)
     }
 
     commit() {

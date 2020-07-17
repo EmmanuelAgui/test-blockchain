@@ -75,13 +75,13 @@ function foo() {
 
     (async () => {
         try {
-            await obj.transaction()
-            await obj.deal({ name: "hhh0", value: "hhh2"}, true)
-            await obj.deal({ name: "hhh1", value: "hhh2"}, true)
-            await obj.deal({ name: "hhh2", value: "hhh2"}, true)
-            await obj.deal({ name: "hhh3", value: "hhh2"}, true)
-            await obj.deal({ name: "hhh4", value: "hhh2"}, true)
-            await obj.rollback()
+            let tx = await obj.transaction()
+            await tx.deal({ name: "hhh0", value: "hhh2"})
+            await tx.deal({ name: "hhh1", value: "hhh2"})
+            await tx.deal({ name: "hhh2", value: "hhh2"})
+            await tx.deal({ name: "hhh3", value: "hhh2"})
+            await tx.deal({ name: "hhh4", value: "hhh2"})
+            await tx.rollback()
         }
         catch(e) {
             console.log(`1 ${e}`)
@@ -90,13 +90,13 @@ function foo() {
 
     (async () => {
         try {
-            await obj.transaction()
-            await obj.deal({ name: "hhh5", value: "hhh2"}, true)
-            await obj.deal({ name: "hhh6", value: "hhh2"}, true)
-            await obj.deal({ name: "hhh7", value: "hhh2"}, true)
-            await obj.deal({ name: "hhh8", value: "hhh2"}, true)
-            await obj.deal({ name: "hhh9", value: "hhh2"}, true)
-            await obj.rollback()
+            await obj.deal({ name: "hhh5", value: "hhh2"})
+            await obj.deal({ name: "hhh6", value: "hhh2"})
+            await obj.deal({ name: "hhh7", value: "hhh2"})
+            let tx = await obj.transaction()
+            await tx.deal({ name: "hhh8", value: "hhh2"})
+            await tx.deal({ name: "hhh9", value: "hhh2"})
+            await tx.rollback()
         }
         catch(e) {
             console.log(`2 ${e}`)
@@ -105,13 +105,13 @@ function foo() {
 
     (async () => {
         try {
-            await obj.transaction()
-            await obj.deal({ name: "hhh10", value: "hhh2"}, true)
-            await obj.deal({ name: "hhh11", value: "hhh2"}, true)
-            await obj.deal({ name: "hhh12", value: "hhh2"}, true)
-            await obj.deal({ name: "hhh13", value: "hhh2"}, true)
-            await obj.deal({ name: "hhh14", value: "hhh2"}, true)
-            await obj.rollback()
+            await obj.deal({ name: "hhh10", value: "hhh2"})
+            await obj.deal({ name: "hhh11", value: "hhh2"})
+            let tx = await obj.transaction()
+            await tx.deal({ name: "hhh12", value: "hhh2"})
+            await tx.deal({ name: "hhh13", value: "hhh2"})
+            await tx.deal({ name: "hhh14", value: "hhh2"})
+            await tx.rollback()
         }
         catch(e) {
             console.log(`3 ${e}`)
