@@ -1,0 +1,19 @@
+{
+  "name": "test-blockchain",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node -r ts-node/register main.ts"
+  },
+  "author": "samlior",
+  "license": "ISC",
+  "dependencies": {
+    "@types/node": "^14.0.23",
+    "leveldown": "^5.6.0",
+    "levelup": "^4.4.0",
+    "ts-node": "^8.10.2",
+    "typescript": "^3.9.7",
+    "ws": "^7.3.1"
+  }
+}
