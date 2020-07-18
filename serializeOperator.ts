@@ -33,6 +33,8 @@ export abstract class serializeOperator<T> {
     private _transactionResolve: () => void
     private _transactionPromise: Promise<void>
 
+    private _lifeCirclePromise: Promise<void>
+
     protected abstract process(d: T): Promise<any>;
     protected abstract processRollback(d: T): Promise<any>;
 
@@ -143,33 +145,48 @@ export abstract class serializeOperator<T> {
         this._resolved = true
         this._transactionResolved = true
         this._abort = true
+
+        await this._lifeCirclePromise
     }
 
-    async start() {
-        while(!this._abort) {
-            let t: task<T>
-            if (this._taskList.length > 0) {
-                t = this._taskList[0]
-                this._taskList = this._taskList.splice(1)
-            }
-            else {
-                this._resolved = false
-                t = await new Promise<task<T>>((resolve) => {
-                    this._resolve = resolve
-                })
-            }
-
-            if (this._abort) {
-                return
-            }
-
-            try {
-                t.resolve(await this.process(t.data))
-            }
-            catch(e) {
-                t.reject(e)
-            }
-            t.done = true
+    async restart() {
+        if (!this._abort) {
+            await this.abort()
         }
+
+        this._abort = false
+        this.start()
+    }
+
+    start() {
+        return this._lifeCirclePromise = new Promise<void>(async (resolve) => {
+            while(!this._abort) {
+                let t: task<T>
+                if (this._taskList.length > 0) {
+                    t = this._taskList[0]
+                    this._taskList = this._taskList.splice(1)
+                }
+                else {
+                    this._resolved = false
+                    t = await new Promise<task<T>>((resolve) => {
+                        this._resolve = resolve
+                    })
+                }
+    
+                if (this._abort) {
+                   break
+                }
+    
+                try {
+                    t.resolve(await this.process(t.data))
+                }
+                catch(e) {
+                    t.reject(e)
+                }
+                t.done = true
+            }
+
+            resolve()
+        })
     }
 }

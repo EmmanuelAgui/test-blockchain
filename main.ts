@@ -75,13 +75,12 @@ function foo() {
 
     (async () => {
         try {
-            let tx = await obj.transaction()
-            await tx.deal({ name: "hhh0", value: "hhh2"})
-            await tx.deal({ name: "hhh1", value: "hhh2"})
-            await tx.deal({ name: "hhh2", value: "hhh2"})
-            await tx.deal({ name: "hhh3", value: "hhh2"})
-            await tx.deal({ name: "hhh4", value: "hhh2"})
-            await tx.rollback()
+            await obj.deal({ name: "hhh0", value: "hhh2"})
+            await obj.restart()
+            await obj.deal({ name: "hhh1", value: "hhh2"})
+            await obj.deal({ name: "hhh2", value: "hhh2"})
+            await obj.deal({ name: "hhh3", value: "hhh2"})
+            await obj.deal({ name: "hhh4", value: "hhh2"})
         }
         catch(e) {
             console.log(`1 ${e}`)
@@ -107,11 +106,10 @@ function foo() {
         try {
             await obj.deal({ name: "hhh10", value: "hhh2"})
             await obj.deal({ name: "hhh11", value: "hhh2"})
-            let tx = await obj.transaction()
-            await tx.deal({ name: "hhh12", value: "hhh2"})
-            await tx.deal({ name: "hhh13", value: "hhh2"})
-            await tx.deal({ name: "hhh14", value: "hhh2"})
-            await tx.rollback()
+            await obj.deal({ name: "hhh12", value: "hhh2"})
+            await obj.deal({ name: "hhh13", value: "hhh2"})
+            await obj.restart()
+            await obj.deal({ name: "hhh14", value: "hhh2"})
         }
         catch(e) {
             console.log(`3 ${e}`)

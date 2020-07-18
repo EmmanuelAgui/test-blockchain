@@ -10,7 +10,7 @@ type databaseOperation = {
     old?: Map<string, string>
 }
 
-abstract class database extends serializeOperator<databaseOperation> {
+class database extends serializeOperator<databaseOperation> {
     private _db: any;
 
     constructor(private _path: string) {
@@ -105,8 +105,35 @@ abstract class database extends serializeOperator<databaseOperation> {
             })
         })
     }
+
+    protected async process(data: databaseOperation) {
+        data.old = new Map<string, string>()
+        if (data.type === "put") {
+            for (let key of data.map.keys()) {
+                data.old.set(key, await this.get(key))
+                await this.put(key, data.map[key])
+            }
+        }
+        else {
+            for (let key of data.map.keys()) {
+                data.old.set(key, await this.get(key))
+                await this.del(key)
+            }
+        }
+    }
+
+    protected async processRollback(data: databaseOperation) {
+        if (data.old) {
+            for (let key of data.old.keys()) {
+                if (data.old.get(key) !== undefined) {
+                    await this.put(key, data.old.get(key))
+                }
+            }
+        }
+    }
 }
 
+/*
 type transactionRecord = {
     hash: string
     from: string
@@ -250,28 +277,5 @@ export class databaseService extends database {
     async putBlock(br: blockRecord) {
 
     }
-
-    protected async process(data: databaseOperation) {
-        data.old = new Map<string, string>()
-        if (data.type === "put") {
-            for (let key of data.map.keys()) {
-                data.old.set(key, await this.get(key))
-                await this.put(key, data.map[key])
-            }
-        }
-        else {
-            for (let key of data.map.keys()) {
-                data.old.set(key, await this.get(key))
-                await this.del(key)
-            }
-        }
-    }
-
-    protected async processRollback(data: databaseOperation) {
-        if (data.old) {
-            for (let key of data.old.keys()) {
-
-            }
-        }
-    }
 }
+*/
