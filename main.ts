@@ -226,10 +226,7 @@ class blockChainService {
 
                 // 没有达到最大高度, 继续同步.
                 if (!flag) {
-                    (async () => {
-                        await this._td.transaction()
-                        await this._td.newTask("preDownloadBlockHeader", true)
-                    })()
+                    this.startSync()
                 }
                 return {
                     commit: true
@@ -283,6 +280,16 @@ class blockChainService {
         this._status.currentTransactions.push(tx)
         
         await this._persistStatus()
+    }
+
+    // 开始同步.
+    async startSync() {
+        await this._td.transaction()
+        let blockHeight = new Decimal(this._status.currentBlockHeader.height)
+        let localMaxHeight = new Decimal(this._status.maxHeight)
+        if (localMaxHeight.greaterThan(blockHeight)) {
+            await this._td.newTask("preDownloadBlockHeader", true)
+        }
     }
 
     // 接受到最新区块通知.
