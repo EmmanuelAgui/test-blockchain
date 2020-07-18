@@ -22,7 +22,7 @@ export class serializeTransaction<T> {
     }
 }
 
-export abstract class serializeOperator<T> {
+export class serializeOperator<T> {
     private _taskList: task<T>[] = []
     private _resolved: boolean = true
     private _abort: boolean = false
@@ -35,17 +35,9 @@ export abstract class serializeOperator<T> {
 
     private _lifeCirclePromise: Promise<void>
 
-    protected abstract process(d: T): Promise<any>;
-    protected abstract processRollback(d: T): Promise<any>;
-
-    private setResolve(t: task<T>) {
-        if (this._resolved) {
-            this._taskList.push(t)
-        }
-        else {
-            this._resolve(t)
-            this._resolved = true
-        }
+    constructor(
+        private _process: (d: T) => Promise<any>,
+        private _processRollback: (d: T) => Promise<any>) {
     }
 
     async transaction() {
@@ -58,17 +50,13 @@ export abstract class serializeOperator<T> {
         }
 
         this._transactionResolved = false
-        this._transactionPromise = new Promise((resolve, reject) => {
+        this._transactionPromise = new Promise((resolve) => {
             this._transactionResolve = resolve
         })
         return new serializeTransaction<T>(this)
     }
 
     commit() {
-        if (this._abort) {
-            throw new Error("operator abort!")
-        }
-
         if (!this._transactionResolved) {
             this._transactionResolve()
             this._transactionResolved = true
@@ -80,14 +68,10 @@ export abstract class serializeOperator<T> {
     }
 
     async rollback() {
-        if (this._abort) {
-            throw new Error("operator abort!")
-        }
-
         if (!this._transactionResolved) {
             for (let i = this._transactionTaskList.length - 1; i >= 0; i--) {
                 if (this._transactionTaskList[i].done) {
-                    await this.processRollback(this._transactionTaskList[i].data)
+                    await this._processRollback(this._transactionTaskList[i].data)
                 }
             }
             this._transactionResolve()
@@ -119,32 +103,39 @@ export abstract class serializeOperator<T> {
             if (inTransaction) {
                 this._transactionTaskList.push(t)
             }
-            this.setResolve(t)
+
+            if (this._resolved) {
+                this._taskList.push(t)
+            }
+            else {
+                this._resolve(t)
+                this._resolved = true
+            }
         })
     }
 
     async abort() {
+        this._abort = true
+
         for (let t of this._taskList) {
             t.reject("operator abort!")
         }
         this._taskList = []
 
-        for (let i = this._transactionTaskList.length - 1; i >= 0; i--) {
-            if (this._transactionTaskList[i].done) {
-                await this.processRollback(this._transactionTaskList[i].data)
-            }
+        try {
+            await this.rollback()
         }
-        this._transactionTaskList = []
+        catch(e) {
+        }
+        
         if (!this._resolved) {
             this._resolve(undefined)
+            this._resolved = true
         }
         if (!this._transactionResolved) {
             this._transactionResolve()
+            this._transactionResolved = true
         }
-
-        this._resolved = true
-        this._transactionResolved = true
-        this._abort = true
 
         await this._lifeCirclePromise
     }
@@ -178,9 +169,14 @@ export abstract class serializeOperator<T> {
                 }
     
                 try {
-                    t.resolve(await this.process(t.data))
+                    t.resolve(await this._process(t.data))
                 }
                 catch(e) {
+                    // 如果在事务中发生异常, 则直接回滚.
+                    if (!this._transactionResolved) {
+                        this.rollback()
+                    }
+
                     t.reject(e)
                 }
                 t.done = true

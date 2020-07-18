@@ -4,6 +4,11 @@ import { wsClient } from './wsClient'
 
 const args = process.argv.splice(2)
 
+const wsClients: wsClient[] = []
+for (let address of args) {
+    wsClients.push(new wsClient(address))
+}
+
 const wsServer = new WebSocket.Server({
         port: 8080,
         perMessageDeflate: {
@@ -43,78 +48,191 @@ wsServer.on('error', function close(ws) {
     console.log("wsServer error")
 })
 
-const wsClients: wsClient[] = []
-for (let address of args) {
-    wsClients.push(new wsClient(address))
+import Decimal from 'decimal.js'
+
+import { database } from './database'
+import { taskDispatcher, task, taskTransaction } from './taskDispatcher'
+
+type blockChainStatus = {
+    userBalance: Map<string, string>
+
+    currentBlockHeader: blockHeader
+    currentTransactions: transaction[]
 }
 
-import { serializeOperator } from './serializeOperator'
-
-type mydata = {
-    name: string,
+type transaction = {
+    hash: string
+    from: string
+    to: string
     value: string
+    nonce: string
+    signature: string
+
+    blockHash?: string
 }
 
-class testClass extends serializeOperator<mydata> {
-    protected async process(d: mydata) {
-        console.log(`process: ${d.name} ${d.value}`)
+type blockHeader = {
+    hash: string,
+    preHash: string,
+    miner: string,
+    height: string,
+    diff: string,
+    nonce: string,
+    transactionHashs: string[]
+}
+
+class databaseManager extends database {
+    constructor(path: string) { super(path) }
+
+    async getBlockByHeight(height: string): Promise<blockHeader> { return undefined }
+
+    async putStatus(status: blockChainStatus): Promise<void> {}
+    async putBlock(blockHeader: blockHeader): Promise<void> {}
+    putTransactions(transactions: transaction[]): Promise<void>[] { return [] }
+
+    async delStatus(status: blockChainStatus): Promise<void> {}
+    async delBlock(blockHeader: blockHeader): Promise<void> {}
+    delTransactions(transactions: transaction[]): Promise<void>[] { return [] }
+}
+
+class networkManager {
+    async downloadHeader(height: string): Promise<blockHeader> { return undefined }
+    async downloadTransaction(hash: string): Promise<transaction> { return undefined }
+}
+
+class blockChainService {
+    private _db = new databaseManager('./db')
+    private _net = new networkManager()
+    private _td = new taskDispatcher()
+    private _status: blockChainStatus
+
+    private _updateUserBalance(address: string, value: Decimal | number | string): boolean {
+        let dvalue = value instanceof Decimal ? value : new Decimal(value)
+        let balance = this._status.userBalance.has(address) ? new Decimal(this._status.userBalance.get(address)) : new Decimal(0)
+        let newBalance = balance.add(dvalue)
+        if (newBalance.lessThan(0)) {
+            return false
+        }
+        this._status.userBalance.set(address, newBalance.toString())
+        return true
     }
 
-    protected async processRollback(d: mydata) {
-        console.log(`rollback: ${d.name} ${d.value}`)
+    private _checkUserBalance(address: string, value: Decimal | number | string, flag: 0 | 1 | 2 | 3 = 0): boolean {
+        let dvalue = value instanceof Decimal ? value : new Decimal(value)
+        let balance = this._status.userBalance.has(address) ? new Decimal(this._status.userBalance.get(address)) : new Decimal(0)
+        if (flag === 0) {
+            return balance.greaterThanOrEqualTo(dvalue)
+        }
+        else if (flag === 1) {
+            return balance.greaterThan(dvalue)
+        }
+        else if (flag === 2) {
+            return balance.lessThanOrEqualTo(dvalue)
+        }
+        else {
+            return balance.lessThan(dvalue)
+        }
+    }
+
+    private async _persistStatus() {
+        await this._db.putStatus(this._status)
+    }
+
+    private async _deleteStatus() {
+
+    }
+
+    constructor() {
+        this._td.registerHandler("preDownloadBlockHeader",
+            async (td: taskDispatcher, t: task) => {
+                let newHeight = new Decimal(this._status.currentBlockHeader.height).add(1).toString()
+                let bh = await this._net.downloadHeader(newHeight)
+                if (bh.height === newHeight &&
+                    bh.preHash === this._status.currentBlockHeader.hash) {
+                    // 记录新块头, 清除事务. 
+                    this._status.currentBlockHeader = bh
+                    this._status.currentTransactions = []
+                    return {
+                        name: "preDownloadTransactions"
+                    }
+                }
+                else {
+                    // 回滚...
+                }
+            },
+            async (td: taskDispatcher, t: task) => {
+                let height = new Decimal(this._status.currentBlockHeader.height)
+                let blockHeader: blockHeader
+                if (height.equals(0)) {
+                    // 创世块...
+                }
+                else {
+                    blockHeader = await this._db.getBlockByHeight(height.sub(1).toString())
+                }
+                if (!blockHeader) {
+                    throw new Error("missing block!")
+                }
+                this._status.currentBlockHeader = blockHeader
+            }
+        )
+
+        this._td.registerHandler("preDownloadTransactions",
+            async (td: taskDispatcher, t: task) => {
+                let txs: transaction[] = []
+                for (let txHash of this._status.currentBlockHeader.transactionHashs) {
+                    txs.push(await this._net.downloadTransaction(txHash))
+                }
+                this._status.currentTransactions = txs
+
+                return {
+                    name: "checkTransactions"
+                }
+            },
+            async (td: taskDispatcher, t: task) => {
+                this._status.currentTransactions = []
+            }
+        )
+
+        this._td.registerHandler("checkTransactions",
+            async (td: taskDispatcher, t: task) => {
+                for (let transaction of this._status.currentTransactions) {
+                    if (!this._checkUserBalance(transaction.from, transaction.value)) {
+                        throw new Error("check transaction failed!")
+                    }
+                }
+
+                for (let transaction of this._status.currentTransactions) {
+                    this._updateUserBalance(transaction.from, `-${transaction.value}`)
+                    this._updateUserBalance(transaction.to, transaction.value)
+                }
+
+                return {
+                    name: "checkBlockHeader"
+                }
+            },
+            async (td: taskDispatcher, t: task) => {
+                for (let transaction of this._status.currentTransactions) {
+                    this._updateUserBalance(transaction.to, `-${transaction.value}`)
+                    this._updateUserBalance(transaction.from, transaction.value)
+                }
+            }
+        )
+
+        this._td.registerHandler("checkBlockHeader",
+            async (td: taskDispatcher, t: task) => {
+                // 发放矿工工资.
+                this._updateUserBalance(this._status.currentBlockHeader.miner, 2)
+                // 持久化最新的块及状态信息.
+                await this._persistStatus()
+            },
+            async (td: taskDispatcher, t: task) => {
+                this._updateUserBalance(this._status.currentBlockHeader.miner, -2)
+                await this._deleteStatus()
+            }
+        )
+    }
+
+    onNewBlock(block: blockHeader) {
+
     }
 }
-
-function foo() {
-    let obj = new testClass();
-    (async () => {
-        console.log("start")
-        await obj.start()
-        console.log("end")
-    })();
-
-    (async () => {
-        try {
-            await obj.deal({ name: "hhh0", value: "hhh2"})
-            await obj.restart()
-            await obj.deal({ name: "hhh1", value: "hhh2"})
-            await obj.deal({ name: "hhh2", value: "hhh2"})
-            await obj.deal({ name: "hhh3", value: "hhh2"})
-            await obj.deal({ name: "hhh4", value: "hhh2"})
-        }
-        catch(e) {
-            console.log(`1 ${e}`)
-        }
-    })();
-
-    (async () => {
-        try {
-            await obj.deal({ name: "hhh5", value: "hhh2"})
-            await obj.deal({ name: "hhh6", value: "hhh2"})
-            await obj.deal({ name: "hhh7", value: "hhh2"})
-            let tx = await obj.transaction()
-            await tx.deal({ name: "hhh8", value: "hhh2"})
-            await tx.deal({ name: "hhh9", value: "hhh2"})
-            await tx.rollback()
-        }
-        catch(e) {
-            console.log(`2 ${e}`)
-        }
-    })();
-
-    (async () => {
-        try {
-            await obj.deal({ name: "hhh10", value: "hhh2"})
-            await obj.deal({ name: "hhh11", value: "hhh2"})
-            await obj.deal({ name: "hhh12", value: "hhh2"})
-            await obj.deal({ name: "hhh13", value: "hhh2"})
-            await obj.restart()
-            await obj.deal({ name: "hhh14", value: "hhh2"})
-        }
-        catch(e) {
-            console.log(`3 ${e}`)
-        }
-    })();
-}
-
-foo()

@@ -1,20 +1,11 @@
 import levelup from 'levelup'
 import leveldown from 'leveldown'
 import { NotFoundError } from 'level-errors'
-import { serializeOperator } from './serializeOperator'
 
-// TODO: 持久化数据操作.
-type databaseOperation = {
-    type: "put" | "del",
-    map: Map<string, string>
-    old?: Map<string, string>
-}
-
-class database extends serializeOperator<databaseOperation> {
+export class database {
     private _db: any;
 
     constructor(private _path: string) {
-        super()
         this.open()
     }
 
@@ -106,6 +97,7 @@ class database extends serializeOperator<databaseOperation> {
         })
     }
 
+    /*
     protected async process(data: databaseOperation) {
         data.old = new Map<string, string>()
         if (data.type === "put") {
@@ -131,6 +123,7 @@ class database extends serializeOperator<databaseOperation> {
             }
         }
     }
+    */
 }
 
 /*
