@@ -8,7 +8,7 @@ export class task {
 }
 
 type handlerCallback = (td: taskDispatcher, t: task) => Promise<{
-        name: string,
+        name?: string,
         rollback?: boolean,
         commit?: boolean
 } | void>
@@ -16,19 +16,6 @@ type handlerCallback = (td: taskDispatcher, t: task) => Promise<{
 type handlerCallbackInfo = {
     process: handlerCallback
     processRollback: handlerCallback
-}
-
-export class taskTransaction {
-    constructor(private _td: taskDispatcher) {
-    }
-
-    commit() {
-        this._td.commit()
-    }
-
-    rollback() {
-        return this._td.rollback()
-    }
 }
 
 export class taskDispatcher {
@@ -63,7 +50,6 @@ export class taskDispatcher {
         this._transactionPromise = new Promise((resolve) => {
             this._transactionResolve = resolve
         })
-        return new taskTransaction(this)
     }
 
     commit() {
@@ -194,7 +180,7 @@ export class taskDispatcher {
                     else if (result && result.rollback) {
                         await this.rollback()
                     }
-                    else if (result) {
+                    else if (result && result.name) {
                         this.newTask(result.name, t.inTransaction)
                     }
                 }

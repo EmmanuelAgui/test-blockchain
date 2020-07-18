@@ -51,11 +51,12 @@ wsServer.on('error', function close(ws) {
 import Decimal from 'decimal.js'
 
 import { database } from './database'
-import { taskDispatcher, task, taskTransaction } from './taskDispatcher'
+import { taskDispatcher, task } from './taskDispatcher'
 
 type blockChainStatus = {
     userBalance: Map<string, string>
 
+    maxHeight: string
     currentBlockHeader: blockHeader
     currentTransactions: transaction[]
 }
@@ -67,8 +68,6 @@ type transaction = {
     value: string
     nonce: string
     signature: string
-
-    blockHash?: string
 }
 
 type blockHeader = {
@@ -132,14 +131,6 @@ class blockChainService {
         else {
             return balance.lessThan(dvalue)
         }
-    }
-
-    private async _persistStatus() {
-        await this._db.putStatus(this._status)
-    }
-
-    private async _deleteStatus() {
-
     }
 
     constructor() {
@@ -222,8 +213,27 @@ class blockChainService {
             async (td: taskDispatcher, t: task) => {
                 // 发放矿工工资.
                 this._updateUserBalance(this._status.currentBlockHeader.miner, 2)
+                // 判断是否到达最大高度.
+                let blockHeight = new Decimal(this._status.currentBlockHeader.height)
+                let localMaxHeight = new Decimal(this._status.maxHeight)
+                let flag = blockHeight.greaterThanOrEqualTo(localMaxHeight)
+                if (flag) {
+                    this._status.maxHeight = this._status.currentBlockHeader.height
+                }
+
                 // 持久化最新的块及状态信息.
                 await this._persistStatus()
+
+                // 没有达到最大高度, 继续同步.
+                if (!flag) {
+                    (async () => {
+                        await this._td.transaction()
+                        await this._td.newTask("preDownloadBlockHeader", true)
+                    })()
+                }
+                return {
+                    commit: true
+                }
             },
             async (td: taskDispatcher, t: task) => {
                 this._updateUserBalance(this._status.currentBlockHeader.miner, -2)
@@ -232,7 +242,61 @@ class blockChainService {
         )
     }
 
-    onNewBlock(block: blockHeader) {
+    private async _persistStatus() {
+        await this._db.putStatus(this._status)
+        await this._db.putBlock(this._status.currentBlockHeader)
+        await Promise.all(this._db.putTransactions(this._status.currentTransactions))
+    }
 
+    private async _deleteStatus() {
+        await this._db.delStatus(this._status)
+        await this._db.delBlock(this._status.currentBlockHeader)
+        await Promise.all(this._db.delTransactions(this._status.currentTransactions))
+    }
+
+    async init() {
+        let block: blockHeader = {
+            hash: "000",
+            preHash: "000",
+            miner: "123456",
+            height: "0",
+            diff: "000",
+            nonce: "000",
+            transactionHashs: []
+        }
+        let tx: transaction = {
+            hash: "000",
+            from: "000",
+            to: "123456",
+            value: "100000000000000",
+            nonce: "000",
+            signature: "000"
+        }
+        block.transactionHashs.push(tx.hash)
+
+        this._status = {
+            userBalance: new Map<string, string>(),
+            maxHeight: "0",
+            currentBlockHeader: block,
+            currentTransactions: []
+        }
+        this._status.currentTransactions.push(tx)
+        
+        await this._persistStatus()
+    }
+
+    // 接受到最新区块通知.
+    async onNewBlock(block: blockHeader) {
+        let blockHeight = new Decimal(block.height)
+        let localMaxHeight = new Decimal(this._status.maxHeight)
+        if (blockHeight.greaterThan(localMaxHeight)) {
+            await this._td.transaction()
+            blockHeight = new Decimal(block.height)
+            localMaxHeight = new Decimal(this._status.maxHeight)
+            if (blockHeight.greaterThan(localMaxHeight)) {
+                this._status.maxHeight = block.height
+                await this._td.newTask("preDownloadBlockHeader", true)
+            }
+        }
     }
 }
