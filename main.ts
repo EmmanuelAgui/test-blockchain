@@ -148,14 +148,16 @@ class blockChainService {
                     }
                 }
                 else {
-                    // 回滚...
+                    return {
+                        name: "preDownloadBlockHeader(forward)"
+                    }
                 }
             },
             async (td: taskDispatcher, t: task) => {
                 let height = new Decimal(this._status.currentBlockHeader.height)
                 let blockHeader: blockHeader
                 if (height.equals(0)) {
-                    // 创世块...
+                    blockHeader = this.makeGenesisBlock()[0] as blockHeader
                 }
                 else {
                     blockHeader = await this._db.getBlockByHeight(height.sub(1).toString())
@@ -164,6 +166,42 @@ class blockChainService {
                     throw new Error("missing block!")
                 }
                 this._status.currentBlockHeader = blockHeader
+            }
+        )
+
+        this._td.registerHandler("preDownloadBlockHeader(forward)",
+            async (td: taskDispatcher, t: task) => {
+                let bh = await this._net.downloadHeader(this._status.currentBlockHeader.height)
+                if (bh.height === this._status.currentBlockHeader.height &&
+                    bh.hash === this._status.currentBlockHeader.hash) {
+                    // 找到同步点, 开始向后同步. 
+                    return {
+                        name: "preDownloadBlockHeader"
+                    }
+                }
+                else {
+                    let height = new Decimal(this._status.currentBlockHeader.height)
+                    let blockHeader: blockHeader
+                    if (height.equals(0)) {
+                        blockHeader = this.makeGenesisBlock()[0] as blockHeader
+                    }
+                    else {
+                        blockHeader = await this._db.getBlockByHeight(height.sub(1).toString())
+                    }
+                    if (!blockHeader) {
+                        throw new Error("missing block!")
+                    }
+                    this._status.currentBlockHeader = blockHeader
+                    return {
+                        name: "preDownloadBlockHeader(forward)"
+                    }
+                }
+            },
+            async (td: taskDispatcher, t: task) => {
+                let newHeight = new Decimal(this._status.currentBlockHeader.height).add(1).toString()
+                let bh = await this._db.getBlockByHeight(newHeight)
+                this._status.currentBlockHeader = bh
+                this._status.currentTransactions = []
             }
         )
 
@@ -251,7 +289,7 @@ class blockChainService {
         await Promise.all(this._db.delTransactions(this._status.currentTransactions))
     }
 
-    async init() {
+    makeGenesisBlock() {
         let block: blockHeader = {
             hash: "000",
             preHash: "000",
@@ -270,14 +308,19 @@ class blockChainService {
             signature: "000"
         }
         block.transactionHashs.push(tx.hash)
+        return [block, tx]
+    }
+
+    async init() {
+        let [block, tx] = this.makeGenesisBlock()
 
         this._status = {
             userBalance: new Map<string, string>(),
             maxHeight: "0",
-            currentBlockHeader: block,
+            currentBlockHeader: block as blockHeader,
             currentTransactions: []
         }
-        this._status.currentTransactions.push(tx)
+        this._status.currentTransactions.push(tx as transaction)
         
         await this._persistStatus()
     }
