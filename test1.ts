@@ -53,7 +53,7 @@ wsServer.on('error', function close(ws) {
 import { v4 as uuidv4 } from 'uuid'
 
 import { blockHeader, transaction } from './const'
-import { blockChainService } from './blockChainService'
+import { blockChainService, printBlockChainStatus } from './blockChainService'
 
 async function test() {
     try {

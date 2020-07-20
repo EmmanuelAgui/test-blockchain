@@ -6,7 +6,7 @@ import { taskDispatcher, task } from './taskDispatcher'
 import { networkManager } from './networkManager'
 import { databaseManager } from './databaseManager'
 
-function printBlockChainStatus(status: blockChainStatus) {
+export function printBlockChainStatus(status: blockChainStatus) {
     console.log("userBalance:")
     for (let key of status.userBalance.keys()) {
         console.log(`   ${key} => ${status.userBalance.get(key)}`)
@@ -182,6 +182,7 @@ export class blockChainService {
         this._td.registerHandler("checkBlockHeader",
             async (td: taskDispatcher, t: task) => {
                 console.log("- start checkBlockHeader")
+
                 // 发放矿工工资.
                 this._updateUserBalance(this._status.currentBlockHeader.miner, 2)
                 // 判断是否到达最大高度.

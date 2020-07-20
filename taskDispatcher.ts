@@ -119,28 +119,25 @@ export class taskDispatcher {
         try {
             await this.rollback()
         }
-        catch(e) {
+        catch {
         }
         
         if (!this._resolved) {
             this._resolve(undefined)
             this._resolved = true
         }
-        if (!this._transactionResolved) {
-            this._transactionResolve()
-            this._transactionResolved = true
-        }
-
-        await this._lifeCirclePromise
     }
 
-    async restart() {
-        if (!this._abort) {
-            await this.abort()
-        }
-
-        this._abort = false
-        this.start()
+    restart() {
+        (async () => {
+            if (!this._abort) {
+                this.abort()
+                await this._lifeCirclePromise
+            }
+    
+            this._abort = false
+            this.start()
+        })()
     }
 
     start() {
@@ -169,12 +166,12 @@ export class taskDispatcher {
     
                 try {
                     let result = await this._handlerMap.get(t.name).process(this, t) as any
-                    t.done = true
 
                     if (this._abort) {
                         break
                     }
 
+                    t.done = true
                     if (result && result.commit) {
                         this.commit()
                     }
@@ -190,7 +187,7 @@ export class taskDispatcher {
                     if (!this._transactionResolved) {
                         await this.rollback()
                     }
-                }           
+                }
             }
 
             lifecircleResolve()
