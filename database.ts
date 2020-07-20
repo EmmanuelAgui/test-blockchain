@@ -6,30 +6,45 @@ export class database {
     private _db: any;
 
     constructor(private _path: string) {
-        this.open()
     }
 
     open() {
-        if (!this._db) {
-            this._db = levelup(leveldown(this._path, {
-                createIfMissing: true
-            }, (err) => {
-                if (err) {
-                    console.log(`${this._path} open failed`)
-                }
-            }))
-        }
+        return new Promise((resolve, reject) => {
+            if (!this._db) {
+                this._db = levelup(leveldown(this._path, {
+                    createIfMissing: true
+                }, (err) => {
+                    if (err) {
+                        console.log(`${this._path} open failed`)
+                        reject(err)
+                    }
+                    else {
+                        resolve()
+                    }
+                }))
+            }
+            else {
+                reject("database already open!")
+            }
+        })
     }
 
     close() {
-        if (this._db) {
-            this._db.close((err) => {
-                if (err) {
-                    console.log(`${this._path} close failed`)
-                }
-            })
-            this._db = undefined
-        }
+        return new Promise((resolve, reject) => {
+            if (this._db) {
+                this._db.close((err) => {
+                    if (err) {
+                        console.log(`${this._path} close failed`)
+                        reject(err)
+                    }
+                })
+                this._db = undefined
+                resolve()
+            }
+            else {
+                reject("database already close!")
+            }
+        })
     }
 
     get(key: string) {

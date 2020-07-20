@@ -1,5 +1,6 @@
 import { database } from './database'
 import { blockChainStatus, transaction, blockHeader } from './const'
+import Decimal from 'decimal.js'
 
 export function txFromJson(data: any): transaction {
     let json = JSON.parse(data)
@@ -60,6 +61,10 @@ export class databaseManager extends database {
     constructor(path: string) { super(path) }
 
     async getTransactionByHash(hash: string): Promise<transaction> {
+        if (!hash) {
+            return undefined
+        }
+
         let transaction: transaction = {
             hash,
             from: await this.get(`${hash}:from`),
@@ -69,6 +74,11 @@ export class databaseManager extends database {
             signature: await this.get(`${hash}:signature`),
             blockHash: await this.get(`${hash}:blockHash`)
         }
+        for (let key in transaction) {
+            if (transaction[key] === undefined) {
+                return undefined
+            }
+        }
         return transaction
     }
 
@@ -77,27 +87,77 @@ export class databaseManager extends database {
     }
 
     async getBlockByHash(hash: string) {
+        if (!hash) {
+            return undefined
+        }
+
         let block: blockHeader = {
-                hash,
-                preHash: await this.get(`${hash}:preHash`),
-                miner: await this.get(`${hash}:miner`),
-                height: await this.get(`${hash}:height`),
-                diff: await this.get(`${hash}:diff`),
-                nonce: await this.get(`${hash}:nonce`),
-                transactionHashs: []
+            hash,
+            preHash: await this.get(`${hash}:preHash`),
+            miner: await this.get(`${hash}:miner`),
+            height: await this.get(`${hash}:height`),
+            diff: await this.get(`${hash}:diff`),
+            nonce: await this.get(`${hash}:nonce`),
+            transactionHashs: []
         }
         let txCount = await this.get(`${hash}:transactionCount`)
         for (let i = 0; i < Number(txCount); i++) {
-            block.transactionHashs.push(await this.get(`${hash}:tx:${i}`))
+            let txHash = await this.get(`${hash}:tx:${i}`)
+            if (txHash === undefined) {
+                return undefined
+            }
+            block.transactionHashs.push(txHash)
+        }
+        for (let key in block) {
+            if (block[key] === undefined) {
+                return undefined
+            }
         }
         return block
+    }
+
+    async getLatestBlock() {
+        return await this.getBlockByHash(await this.get("lastestBlockHash"))
     }
 
     async getBlockByHeight(height: string) {
         return await this.getBlockByHash(await this.get(`height:${height}`))
     }
 
-    async putBlock(blockHeader: blockHeader): Promise<void> {
+    private _makeUpdateLatestBlockOperate(blockHeader: blockHeader): {
+        type: "put" | "del",
+        key: string,
+        value?: any
+    } {
+        return {
+            type: "put",
+            key: "lastestBlockHash",
+            value: blockHeader.hash
+        }
+    }
+
+    private async _makeRollbackLatestBlockOperate(): Promise<{
+        type: "put" | "del",
+        key: string,
+        value?: any
+    }> {
+        let block = await this.getBlockByHash(await this.get("lastestBlockHash"))
+        if (block && block.height !== "0") {
+            let lastBlock = await this.getBlockByHeight(new Decimal(block.height).sub(1).toString())
+            if (lastBlock) {
+                return {
+                    type: "put",
+                    key: "lastestBlockHash",
+                    value: lastBlock.hash
+                }
+            }
+            else {
+                throw new Error("missing last block!")
+            }
+        }
+    }
+
+    async putBlock(blockHeader: blockHeader, updateLastest: boolean = false): Promise<void> {
         let map = formatBlockHeaderRecord(blockHeader)
         let opArr: {
             type: "put" | "del",
@@ -110,6 +170,9 @@ export class databaseManager extends database {
                 key: key,
                 value: map.get(key)
             })
+        }
+        if (updateLastest) {
+            opArr.push(this._makeUpdateLatestBlockOperate(blockHeader))
         }
         await this.batch(opArr)
     }
@@ -135,7 +198,7 @@ export class databaseManager extends database {
         return transactions.map(tx => this.putTransaction(tx))
     }
 
-    async delBlock(blockHeader: blockHeader): Promise<void> {
+    async delBlock(blockHeader: blockHeader, rollback: boolean = false): Promise<void> {
         let map = formatBlockHeaderRecord(blockHeader)
         let opArr: {
             type: "put" | "del",
@@ -147,6 +210,9 @@ export class databaseManager extends database {
                 type: "del",
                 key: key
             })
+        }
+        if (rollback) {
+            opArr.push(await this._makeRollbackLatestBlockOperate())
         }
         await this.batch(opArr)
     }
