@@ -24,6 +24,7 @@ export class blockChainService {
     /*private*/ _td = new taskDispatcher()
     /*private*/ _status: blockChainStatus
 
+    // 更新用户余额.
     private _updateUserBalance(address: string, value: Decimal | number | string): boolean {
         let dvalue = value instanceof Decimal ? value : new Decimal(value)
         let balance = this._status.userBalance.has(address) ? new Decimal(this._status.userBalance.get(address)) : new Decimal(0)
@@ -35,6 +36,7 @@ export class blockChainService {
         return true
     }
 
+    // 检查用户余额.
     private _checkUserBalance(address: string, value: Decimal | number | string, flag: 0 | 1 | 2 | 3 = 0): boolean {
         let dvalue = value instanceof Decimal ? value : new Decimal(value)
         let balance = this._status.userBalance.has(address) ? new Decimal(this._status.userBalance.get(address)) : new Decimal(0)
@@ -295,11 +297,13 @@ export class blockChainService {
         )
     }
 
+    // 持久化区块信息.
     private async _persistBlockChain() {
         await this._db.putBlock(this._status.currentBlockHeader, this._status.syncMode === "network")
         await Promise.all(this._db.putTransactions(this._status.currentTransactions))
     }
 
+    // 归滚区块信息.
     private async _deleteBlockChain() {
         await this._db.delBlock(this._status.currentBlockHeader, this._status.syncMode === "network")
         await Promise.all(this._db.delTransactions(this._status.currentTransactions))
