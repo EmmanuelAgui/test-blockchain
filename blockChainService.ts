@@ -213,6 +213,14 @@ export class blockChainService {
                 if (!flag) {
                     this._status.syncMode === "network" ? this.startSync() : this.startRebuild()
                 }
+                else if (this._status.syncMode === "database") {
+                    // 重建完成则开始网络同步.
+                    // 这里为了方便, 直接调用.
+                    let remoteLatestBlock = await this._net.getLatestBlock()
+                    if (remoteLatestBlock) {
+                        this.onNewBlock(remoteLatestBlock)
+                    }
+                }
                 return {
                     commit: true
                 }

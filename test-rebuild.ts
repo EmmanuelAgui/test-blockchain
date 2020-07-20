@@ -4,6 +4,7 @@ async function test() {
     try {
         let service = new blockChainService()
         await service.init()
+        await service._net.clearAll()
         await service.startRebuild();
 
         (async () => {
