@@ -2,6 +2,7 @@ import { database } from './database'
 import { blockChainStatus, transaction, blockHeader } from './const'
 import Decimal from 'decimal.js'
 
+/*
 export function txFromJson(data: any): transaction {
     let json = JSON.parse(data)
     let tx: transaction = {
@@ -29,6 +30,7 @@ export function bhFromJson(data: any): blockHeader {
     }
     return bh
 }
+*/
 
 function formatTransactionRecord(tx: transaction): Map<string, string> {
     let map = new Map<string, string>()
@@ -141,19 +143,31 @@ export class databaseManager extends database {
         key: string,
         value?: any
     }> {
-        let block = await this.getBlockByHash(await this.get("lastestBlockHash"))
-        if (block && block.height !== "0") {
-            let lastBlock = await this.getBlockByHeight(new Decimal(block.height).sub(1).toString())
-            if (lastBlock) {
-                return {
-                    type: "put",
-                    key: "lastestBlockHash",
-                    value: lastBlock.hash
-                }
+        let block = await this.getLatestBlock()
+        if (!block) {
+            return {
+                type: "del",
+                key: "lastestBlockHash"
             }
-            else {
-                throw new Error("missing last block!")
+        }
+        let lastHeight = new Decimal(block.height).sub(1)
+        if (lastHeight.equals(0)) {
+            return {
+                type: "del",
+                key: "lastestBlockHash"
             }
+        }
+
+        let lastBlock = await this.getBlockByHeight(lastHeight.toString())
+        if (lastBlock) {
+            return {
+                type: "put",
+                key: "lastestBlockHash",
+                value: lastBlock.hash
+            }
+        }
+        else {
+            throw new Error("missing last block!")
         }
     }
 

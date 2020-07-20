@@ -7,7 +7,7 @@ import { networkManager } from './networkManager'
 import { databaseManager } from './databaseManager'
 
 export class blockChainService {
-    private _db = new databaseManager('./test-db')
+    /*private*/ _db = new databaseManager('./test-db')
     private _net = new networkManager()
     private _td = new taskDispatcher()
     private _status: blockChainStatus
@@ -41,6 +41,7 @@ export class blockChainService {
     }
 
     constructor() {
+        // 预下载区块头.
         this._td.registerHandler("preDownloadBlockHeader",
             async (td: taskDispatcher, t: task) => {
                 let newHeight = new Decimal(this._status.currentBlockHeader.height).add(1).toString()
@@ -76,6 +77,7 @@ export class blockChainService {
             }
         )
 
+        // 预下载区块头(向前回滚).
         this._td.registerHandler("preDownloadBlockHeader(forward)",
             async (td: taskDispatcher, t: task) => {
                 let bh = await this._net.downloadHeader(this._status.currentBlockHeader.height)
@@ -112,6 +114,7 @@ export class blockChainService {
             }
         )
 
+        // 预下载交易.
         this._td.registerHandler("preDownloadTransactions",
             async (td: taskDispatcher, t: task) => {
                 let txs: transaction[] = []
@@ -129,6 +132,7 @@ export class blockChainService {
             }
         )
 
+        // 校验交易.
         this._td.registerHandler("checkTransactions",
             async (td: taskDispatcher, t: task) => {
                 for (let transaction of this._status.currentTransactions) {
@@ -154,6 +158,7 @@ export class blockChainService {
             }
         )
 
+        // 校验块头.
         this._td.registerHandler("checkBlockHeader",
             async (td: taskDispatcher, t: task) => {
                 // 发放矿工工资.
@@ -171,7 +176,7 @@ export class blockChainService {
 
                 // 没有达到最大高度, 继续同步.
                 if (!flag) {
-                    this.startSync()
+                    this._status.syncMode === "network" ? this.startSync() : this.startRebuild()
                 }
                 return {
                     commit: true
@@ -179,18 +184,70 @@ export class blockChainService {
             },
             async (td: taskDispatcher, t: task) => {
                 this._updateUserBalance(this._status.currentBlockHeader.miner, -2)
-                await this._deleteBlockChain()
+                if (this._status.syncMode === "network") {
+                    await this._deleteBlockChain()
+                }
+            }
+        )
+
+        // 预加载区块头.
+        this._td.registerHandler("preLoadBlockHeader",
+            async (td: taskDispatcher, t: task) => {
+                let newHeight = new Decimal(this._status.currentBlockHeader.height).add(1).toString()
+                let block = await this._db.getBlockByHeight(newHeight)
+                if (!block) {
+                    throw new Error(`missing block in ${newHeight}`)
+                }
+                this._status.currentBlockHeader = block
+                this._status.currentTransactions = []
+
+                return {
+                    name: "preLoadTransactions"
+                }
+            },
+            async (td: taskDispatcher, t: task) => {
+                let height = new Decimal(this._status.currentBlockHeader.height)
+                let blockHeader: blockHeader
+                if (height.equals(0)) {
+                    blockHeader = this.makeGenesisBlock()[0] as blockHeader
+                }
+                else {
+                    blockHeader = await this._db.getBlockByHeight(height.sub(1).toString())
+                }
+                if (!blockHeader) {
+                    throw new Error("missing block!")
+                }
+                this._status.currentBlockHeader = blockHeader
+                this._status.currentTransactions = []
+            }
+        )
+
+        // 预先加载交易.
+        this._td.registerHandler("preLoadTransactions",
+            async (td: taskDispatcher, t: task) => {
+                let txs: transaction[] = []
+                for (let txHash of this._status.currentBlockHeader.transactionHashs) {
+                    txs.push(await this._db.getTransactionByHash(txHash))
+                }
+                this._status.currentTransactions = txs
+
+                return {
+                    name: "checkTransactions"
+                }
+            },
+            async (td: taskDispatcher, t: task) => {
+                this._status.currentTransactions = []
             }
         )
     }
 
     private async _persistBlockChain() {
-        await this._db.putBlock(this._status.currentBlockHeader)
+        await this._db.putBlock(this._status.currentBlockHeader, this._status.syncMode === "network")
         await Promise.all(this._db.putTransactions(this._status.currentTransactions))
     }
 
     private async _deleteBlockChain() {
-        await this._db.delBlock(this._status.currentBlockHeader)
+        await this._db.delBlock(this._status.currentBlockHeader, this._status.syncMode === "network")
         await Promise.all(this._db.delTransactions(this._status.currentTransactions))
     }
 
@@ -218,6 +275,8 @@ export class blockChainService {
     }
 
     async init() {
+        await this._db.open()
+
         let [block, tx] = this.makeGenesisBlock()
 
         this._status = {
@@ -227,17 +286,54 @@ export class blockChainService {
             currentTransactions: []
         }
         this._status.currentTransactions.push(tx as transaction)
+        this._status.userBalance.set((tx as transaction).to, (tx as transaction).value)
         
         await this._persistBlockChain()
     }
 
-    // 开始同步.
+    // 开始从本地重建区块.
+    async startRebuild() {
+        let latestBlock = await this._db.getLatestBlock()
+        if (!latestBlock) {
+            return
+        }
+        let blockHeight = new Decimal(this._status.currentBlockHeader.height)
+        let latestBlockHeight = new Decimal(latestBlock.height)
+        if (latestBlockHeight.greaterThan(blockHeight)) {
+            await this._td.transaction()
+            this._status.syncMode = "database"
+            blockHeight = new Decimal(this._status.currentBlockHeader.height)
+            latestBlock = await this._db.getLatestBlock()
+            if (!latestBlock) {
+                await this._td.rollback()
+                return
+            }
+            latestBlockHeight = new Decimal(latestBlock.height)
+            if (latestBlockHeight.greaterThan(blockHeight)) {
+                this._status.maxHeight = latestBlock.height
+                await this._td.newTask("preLoadBlockHeader", true)
+            }
+            else {
+                await this._td.rollback()
+            }
+        }
+    }
+
+    // 开始从网络同步.
     async startSync() {
-        await this._td.transaction()
         let blockHeight = new Decimal(this._status.currentBlockHeader.height)
         let localMaxHeight = new Decimal(this._status.maxHeight)
         if (localMaxHeight.greaterThan(blockHeight)) {
-            await this._td.newTask("preDownloadBlockHeader", true)
+            await this._td.transaction()
+            this._status.syncMode = "network"
+            blockHeight = new Decimal(this._status.currentBlockHeader.height)
+            localMaxHeight = new Decimal(this._status.maxHeight)
+            if (localMaxHeight.greaterThan(blockHeight)) {
+                await this._td.newTask("preDownloadBlockHeader", true)
+            }
+            else {
+                await this._td.rollback()
+            }
         }
     }
 
@@ -247,11 +343,15 @@ export class blockChainService {
         let localMaxHeight = new Decimal(this._status.maxHeight)
         if (blockHeight.greaterThan(localMaxHeight)) {
             await this._td.transaction()
+            this._status.syncMode = "network"
             blockHeight = new Decimal(block.height)
             localMaxHeight = new Decimal(this._status.maxHeight)
             if (blockHeight.greaterThan(localMaxHeight)) {
                 this._status.maxHeight = block.height
                 await this._td.newTask("preDownloadBlockHeader", true)
+            }
+            else {
+                await this._td.rollback()
             }
         }
     }

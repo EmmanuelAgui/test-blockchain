@@ -111,4 +111,18 @@ export class database {
             })
         })
     }
+
+    clearAll() {
+        return new Promise((resolve, reject) => {
+            this._db.clear((err) => {
+                if (err) {
+                    console.log(`${this._path} clear failed`)
+                    reject(err)
+                }
+                else {
+                    resolve()
+                }
+            })
+        })
+    }
 }

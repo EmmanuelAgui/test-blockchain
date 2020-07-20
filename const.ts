@@ -1,6 +1,7 @@
 export type blockChainStatus = {
     userBalance: Map<string, string>
 
+    syncMode?: "network" | "database"
     maxHeight: string
     currentBlockHeader: blockHeader
     currentTransactions: transaction[]
