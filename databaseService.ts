@@ -1,5 +1,5 @@
 import { database } from './database'
-import { blockChainStatus, transaction, blockHeader } from './const'
+import { blockChainStatus, transaction, blockHeader } from './@types'
 import Decimal from 'decimal.js'
 
 /*

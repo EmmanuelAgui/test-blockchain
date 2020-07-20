@@ -1,4 +1,4 @@
-import { transaction, blockHeader } from './const'
+import { transaction, blockHeader } from './@types'
 import { databaseService } from './databaseService'
 
 export class fakeNetworkService extends databaseService {

@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid'
 
-import { blockHeader, transaction } from './const'
+import { blockHeader, transaction } from './@types'
 import { blockChainService } from './blockChainService'
 import Decimal from 'decimal.js'
 

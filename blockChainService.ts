@@ -1,7 +1,7 @@
 
 import Decimal from 'decimal.js'
 
-import { blockChainStatus, transaction, blockHeader } from './const'
+import { blockChainStatus, transaction, blockHeader } from './@types'
 import { taskDispatcher, task } from './taskDispatcher'
 import { fakeNetworkService } from './fakeNetworkService'
 import { databaseService } from './databaseService'

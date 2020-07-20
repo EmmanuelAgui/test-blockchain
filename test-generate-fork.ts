@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import Decimal from 'decimal.js'
 
-import { blockHeader, transaction } from './const'
+import { blockHeader, transaction } from './@types'
 import { blockChainService } from './blockChainService'
 
 const args = process.argv.splice(2)
