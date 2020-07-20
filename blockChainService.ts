@@ -6,11 +6,23 @@ import { taskDispatcher, task } from './taskDispatcher'
 import { networkManager } from './networkManager'
 import { databaseManager } from './databaseManager'
 
+function printBlockChainStatus(status: blockChainStatus) {
+    console.log("userBalance:")
+    for (let key of status.userBalance.keys()) {
+        console.log(`   ${key} => ${status.userBalance.get(key)}`)
+    }
+    console.log(`syncMode: ${status.syncMode}`)
+    console.log(`maxHeight: ${status.maxHeight}`)
+    console.log(`currentBlockHeader: ${JSON.stringify(status.currentBlockHeader)}`)
+    console.log(`currentTransactions: ${JSON.stringify(status.currentTransactions)}`)
+    console.log("------------------------------")
+}
+
 export class blockChainService {
     /*private*/ _db = new databaseManager('./test-db')
     private _net = new networkManager()
     private _td = new taskDispatcher()
-    private _status: blockChainStatus
+    /*private*/ _status: blockChainStatus
 
     private _updateUserBalance(address: string, value: Decimal | number | string): boolean {
         let dvalue = value instanceof Decimal ? value : new Decimal(value)
@@ -174,6 +186,9 @@ export class blockChainService {
                 // 持久化最新的块及状态信息.
                 await this._persistBlockChain()
 
+                // only for debug.
+                printBlockChainStatus(this._status)
+
                 // 没有达到最大高度, 继续同步.
                 if (!flag) {
                     this._status.syncMode === "network" ? this.startSync() : this.startRebuild()
@@ -272,6 +287,10 @@ export class blockChainService {
         }
         block.transactionHashs.push(tx.hash)
         return [block, tx]
+    }
+
+    start() {
+        return this._td.start()
     }
 
     async init() {

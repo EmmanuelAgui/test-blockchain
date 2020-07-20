@@ -11,9 +11,8 @@ export class database {
     open() {
         return new Promise((resolve, reject) => {
             if (!this._db) {
-                this._db = levelup(leveldown(this._path, {
-                    createIfMissing: true
-                }, (err) => {
+                this._db = levelup(leveldown(this._path))
+                this._db.open((err) => {
                     if (err) {
                         console.log(`${this._path} open failed`)
                         reject(err)
@@ -21,7 +20,7 @@ export class database {
                     else {
                         resolve()
                     }
-                }))
+                })
             }
             else {
                 reject("database already open!")

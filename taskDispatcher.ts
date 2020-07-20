@@ -145,7 +145,7 @@ export class taskDispatcher {
 
     start() {
         return this._lifeCirclePromise = new Promise<void>(async (resolve) => {
-            while(this._abort) {
+            while(!this._abort) {
                 let t: task
                 if (this._taskList.length > 0) {
                     t = this._taskList[0]
