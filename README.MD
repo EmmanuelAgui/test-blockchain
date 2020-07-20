@@ -13,7 +13,7 @@
 ## 文件内容
 
 + `blockChainService`实现了区块链的核心逻辑, 包括下载, 重建, 同步, 回滚
-+ `@types`中定义了各种数据类型.
++ `@types`中定义了各种数据类型
 + `database`封装了levelup及leveldown两个库, 实现了leveldb数据库
 + `databaseService`继承自`database`, 对储存读取块及交易进行了业务封装
 + `fakeNetworkService`继承自`databaseService`, 也是一个leveldb数据库, 模拟远程节点的数据
@@ -38,7 +38,7 @@
 npm run test-gb -- 100
 ```
 
-清除原来本地的所有的数据, 在本地数据库中随机生成100个块
+清除原来本地的所有的数据, 在本地数据库中随机从0开始生成100个块
 
 ```
 npm run test-gf -- 50 60
