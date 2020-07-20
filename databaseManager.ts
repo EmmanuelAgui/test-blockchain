@@ -90,17 +90,84 @@ export class databaseManager extends database {
         for (let i = 0; i < Number(txCount); i++) {
             block.transactionHashs.push(await this.get(`${hash}:tx:${i}`))
         }
+        return block
     }
 
     async getBlockByHeight(height: string) {
         return await this.getBlockByHash(await this.get(`height:${height}`))
     }
 
-    async putStatus(status: blockChainStatus): Promise<void> {}
-    async putBlock(blockHeader: blockHeader): Promise<void> {}
-    putTransactions(transactions: transaction[]): Promise<void>[] { return [] }
+    async putBlock(blockHeader: blockHeader): Promise<void> {
+        let map = formatBlockHeaderRecord(blockHeader)
+        let opArr: {
+            type: "put" | "del",
+            key: string,
+            value?: any
+        }[] = []
+        for (let key of map.keys()) {
+            opArr.push({
+                type: "put",
+                key: key,
+                value: map.get(key)
+            })
+        }
+        await this.batch(opArr)
+    }
 
-    async delStatus(status: blockChainStatus): Promise<void> {}
-    async delBlock(blockHeader: blockHeader): Promise<void> {}
-    delTransactions(transactions: transaction[]): Promise<void>[] { return [] }
+    async putTransaction(tx: transaction): Promise<void> {
+        let map = formatTransactionRecord(tx)
+        let opArr: {
+            type: "put" | "del",
+            key: string,
+            value?: any
+        }[] = []
+        for (let key of map.keys()) {
+            opArr.push({
+                type: "put",
+                key: key,
+                value: map.get(key)
+            })
+        }
+        await this.batch(opArr)
+    }
+
+    putTransactions(transactions: transaction[]): Promise<void>[] {
+        return transactions.map(tx => this.putTransaction(tx))
+    }
+
+    async delBlock(blockHeader: blockHeader): Promise<void> {
+        let map = formatBlockHeaderRecord(blockHeader)
+        let opArr: {
+            type: "put" | "del",
+            key: string,
+            value?: any
+        }[] = []
+        for (let key of map.keys()) {
+            opArr.push({
+                type: "del",
+                key: key
+            })
+        }
+        await this.batch(opArr)
+    }
+
+    async delTransaction(tx: transaction): Promise<void> {
+        let map = formatTransactionRecord(tx)
+        let opArr: {
+            type: "put" | "del",
+            key: string,
+            value?: any
+        }[] = []
+        for (let key of map.keys()) {
+            opArr.push({
+                type: "del",
+                key: key,
+            })
+        }
+        await this.batch(opArr)
+    }
+
+    delTransactions(transactions: transaction[]): Promise<void>[] {
+        return transactions.map(tx => this.delTransaction(tx))
+    }
 }

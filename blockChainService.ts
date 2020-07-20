@@ -167,7 +167,7 @@ export class blockChainService {
                 }
 
                 // 持久化最新的块及状态信息.
-                await this._persistStatus()
+                await this._persistBlockChain()
 
                 // 没有达到最大高度, 继续同步.
                 if (!flag) {
@@ -179,23 +179,22 @@ export class blockChainService {
             },
             async (td: taskDispatcher, t: task) => {
                 this._updateUserBalance(this._status.currentBlockHeader.miner, -2)
-                await this._deleteStatus()
+                await this._deleteBlockChain()
             }
         )
     }
 
-    private async _persistStatus() {
-        await this._db.putStatus(this._status)
+    private async _persistBlockChain() {
         await this._db.putBlock(this._status.currentBlockHeader)
         await Promise.all(this._db.putTransactions(this._status.currentTransactions))
     }
 
-    private async _deleteStatus() {
-        await this._db.delStatus(this._status)
+    private async _deleteBlockChain() {
         await this._db.delBlock(this._status.currentBlockHeader)
         await Promise.all(this._db.delTransactions(this._status.currentTransactions))
     }
 
+    // 获取创世块.
     makeGenesisBlock() {
         let block: blockHeader = {
             hash: "000",
@@ -229,7 +228,7 @@ export class blockChainService {
         }
         this._status.currentTransactions.push(tx as transaction)
         
-        await this._persistStatus()
+        await this._persistBlockChain()
     }
 
     // 开始同步.
