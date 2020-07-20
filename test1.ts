@@ -61,55 +61,47 @@ async function test() {
         await service.init()
         await service._db.clearAll()
 
-        let b1: blockHeader = {
-            hash: uuidv4(),
-            preHash: "000",
-            miner: "456789",
-            height: "1",
-            diff: "000",
-            nonce: "000",
-            transactionHashs: []
-        }
+        let preHash = "000"
+        for (let h = 1; h <= 10; h++) {
+            let b: blockHeader = {
+                hash: uuidv4(),
+                preHash: preHash,
+                miner: "456789",
+                height: `${h}`,
+                diff: "000",
+                nonce: "000",
+                transactionHashs: []
+            }
+    
+            let r = Math.random()
+            let t: transaction = {
+                hash: uuidv4(),
+                from: preHash === "000" ? "123456" : (r > 0.5 ? "123456" : "456789"),
+                to: preHash === "000" ? "456789" : (r > 0.5 ? "456789" : "123456"),
+                value: "1",
+                nonce: "000",
+                signature: "000"
+            }
+            b.transactionHashs.push(t.hash)
+            await service._db.putBlock(b, true)
+            await service._db.putTransaction(t)
 
-        let t1: transaction = {
-            hash: uuidv4(),
-            from: "123456",
-            to: "456789",
-            value: "101",
-            nonce: "000",
-            signature: "000"
+            preHash = b.hash
         }
-        b1.transactionHashs.push(t1.hash)
-        await service._db.putBlock(b1, true)
-        await service._db.putTransaction(t1)
-
-        let b2: blockHeader = {
-            hash: uuidv4(),
-            preHash: b1.hash,
-            miner: "456789",
-            height: "2",
-            diff: "000",
-            nonce: "000",
-            transactionHashs: []
-        }
-        let t2: transaction = {
-            hash: uuidv4(),
-            from: "456789",
-            to: "123456",
-            value: "7.777",
-            nonce: "000",
-            signature: "000"
-        }
-        b2.transactionHashs.push(t2.hash)
-        await service._db.putBlock(b2, true)
-        await service._db.putTransaction(t2)
 
         await service.startRebuild();
 
         (async () => {
-            console.log("========coroutine start========")
-            await service.start()
-            console.log("========coroutine end========")
+            try {
+                console.log("======== coroutine start ========")
+                await service.start()
+                console.log("======== coroutine end ========")
+            }
+            catch(e) {
+                console.log(`======== coroutine error ========`)
+                console.log(`${e}`)
+                console.log(`======== coroutine error over ========`)
+            }
         })()
     }
     catch(e) {

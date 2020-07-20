@@ -271,7 +271,7 @@ export class blockChainService {
         let block: blockHeader = {
             hash: "000",
             preHash: "000",
-            miner: "123456",
+            miner: "000",
             height: "0",
             diff: "000",
             nonce: "000",
@@ -363,7 +363,6 @@ export class blockChainService {
         if (blockHeight.greaterThan(localMaxHeight)) {
             await this._td.transaction()
             this._status.syncMode = "network"
-            blockHeight = new Decimal(block.height)
             localMaxHeight = new Decimal(this._status.maxHeight)
             if (blockHeight.greaterThan(localMaxHeight)) {
                 this._status.maxHeight = block.height

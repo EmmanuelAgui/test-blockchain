@@ -144,7 +144,7 @@ export class taskDispatcher {
     }
 
     start() {
-        return this._lifeCirclePromise = new Promise<void>(async (resolve) => {
+        return this._lifeCirclePromise = new Promise<void>(async (lifecircleResolve) => {
             while(!this._abort) {
                 let t: task
                 if (this._taskList.length > 0) {
@@ -163,6 +163,7 @@ export class taskDispatcher {
                 }
     
                 if (!this._handlerMap.has(t.name)) {
+                    lifecircleResolve()
                     throw new Error(`missing handler ${t.name}`)
                 }
     
@@ -191,7 +192,7 @@ export class taskDispatcher {
                 }                
             }
 
-            resolve()
+            lifecircleResolve()
         })
     }
 }
