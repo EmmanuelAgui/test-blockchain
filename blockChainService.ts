@@ -3,8 +3,8 @@ import Decimal from 'decimal.js'
 
 import { blockChainStatus, transaction, blockHeader } from './const'
 import { taskDispatcher, task } from './taskDispatcher'
-import { networkManager } from './networkManager'
-import { databaseManager } from './databaseManager'
+import { fakeNetworkService } from './fakeNetworkService'
+import { databaseService } from './databaseService'
 
 export function printBlockChainStatus(status: blockChainStatus) {
     console.log("userBalance:")
@@ -19,8 +19,8 @@ export function printBlockChainStatus(status: blockChainStatus) {
 }
 
 export class blockChainService {
-    /*private*/ _db = new databaseManager('./test-db')
-    private _net = new networkManager()
+    /*private*/ _db = new databaseService('./test-db')
+    private _net = new fakeNetworkService()
     private _td = new taskDispatcher()
     /*private*/ _status: blockChainStatus
 
