@@ -56,6 +56,7 @@ export class blockChainService {
         // 预下载区块头.
         this._td.registerHandler("preDownloadBlockHeader",
             async (td: taskDispatcher, t: task) => {
+                console.log("- start preDownloadBlockHeader")
                 let newHeight = new Decimal(this._status.currentBlockHeader.height).add(1).toString()
                 let bh = await this._net.downloadHeader(newHeight)
                 if (bh.height === newHeight &&
@@ -74,6 +75,7 @@ export class blockChainService {
                 }
             },
             async (td: taskDispatcher, t: task) => {
+                console.log("- start rollback preDownloadBlockHeader")
                 let height = new Decimal(this._status.currentBlockHeader.height)
                 let blockHeader: blockHeader
                 if (height.equals(0)) {
@@ -92,6 +94,7 @@ export class blockChainService {
         // 预下载区块头(向前回滚).
         this._td.registerHandler("preDownloadBlockHeader(forward)",
             async (td: taskDispatcher, t: task) => {
+                console.log("- start preDownloadBlockHeader(forward)")
                 let bh = await this._net.downloadHeader(this._status.currentBlockHeader.height)
                 if (bh.height === this._status.currentBlockHeader.height &&
                     bh.hash === this._status.currentBlockHeader.hash) {
@@ -119,6 +122,7 @@ export class blockChainService {
                 }
             },
             async (td: taskDispatcher, t: task) => {
+                console.log("- start rollback preDownloadBlockHeader(forward)")
                 let newHeight = new Decimal(this._status.currentBlockHeader.height).add(1).toString()
                 let bh = await this._db.getBlockByHeight(newHeight)
                 this._status.currentBlockHeader = bh
@@ -129,6 +133,7 @@ export class blockChainService {
         // 预下载交易.
         this._td.registerHandler("preDownloadTransactions",
             async (td: taskDispatcher, t: task) => {
+                console.log("- start preDownloadTransactions")
                 let txs: transaction[] = []
                 for (let txHash of this._status.currentBlockHeader.transactionHashs) {
                     txs.push(await this._net.downloadTransaction(txHash))
@@ -140,6 +145,7 @@ export class blockChainService {
                 }
             },
             async (td: taskDispatcher, t: task) => {
+                console.log("- start rollback preDownloadTransactions")
                 this._status.currentTransactions = []
             }
         )
@@ -147,6 +153,7 @@ export class blockChainService {
         // 校验交易.
         this._td.registerHandler("checkTransactions",
             async (td: taskDispatcher, t: task) => {
+                console.log("- start checkTransactions")
                 for (let transaction of this._status.currentTransactions) {
                     if (!this._checkUserBalance(transaction.from, transaction.value)) {
                         throw new Error("check transaction failed!")
@@ -163,6 +170,7 @@ export class blockChainService {
                 }
             },
             async (td: taskDispatcher, t: task) => {
+                console.log("- start rollback checkTransactions")
                 for (let transaction of this._status.currentTransactions) {
                     this._updateUserBalance(transaction.to, `-${transaction.value}`)
                     this._updateUserBalance(transaction.from, transaction.value)
@@ -173,6 +181,7 @@ export class blockChainService {
         // 校验块头.
         this._td.registerHandler("checkBlockHeader",
             async (td: taskDispatcher, t: task) => {
+                console.log("- start checkBlockHeader")
                 // 发放矿工工资.
                 this._updateUserBalance(this._status.currentBlockHeader.miner, 2)
                 // 判断是否到达最大高度.
@@ -198,6 +207,7 @@ export class blockChainService {
                 }
             },
             async (td: taskDispatcher, t: task) => {
+                console.log("- start rollback checkBlockHeader")
                 this._updateUserBalance(this._status.currentBlockHeader.miner, -2)
                 if (this._status.syncMode === "network") {
                     await this._deleteBlockChain()
@@ -208,19 +218,27 @@ export class blockChainService {
         // 预加载区块头.
         this._td.registerHandler("preLoadBlockHeader",
             async (td: taskDispatcher, t: task) => {
+                console.log("- start preLoadBlockHeader")
                 let newHeight = new Decimal(this._status.currentBlockHeader.height).add(1).toString()
                 let block = await this._db.getBlockByHeight(newHeight)
                 if (!block) {
                     throw new Error(`missing block in ${newHeight}`)
                 }
-                this._status.currentBlockHeader = block
-                this._status.currentTransactions = []
-
-                return {
-                    name: "preLoadTransactions"
+                if (block.height === newHeight &&
+                    block.preHash === this._status.currentBlockHeader.hash) {
+                    this._status.currentBlockHeader = block
+                    this._status.currentTransactions = []
+    
+                    return {
+                        name: "preLoadTransactions"
+                    }
+                }
+                else {
+                    throw new Error(`wrong block info in height ${newHeight}`)
                 }
             },
             async (td: taskDispatcher, t: task) => {
+                console.log("- start rollback preLoadBlockHeader")
                 let height = new Decimal(this._status.currentBlockHeader.height)
                 let blockHeader: blockHeader
                 if (height.equals(0)) {
@@ -240,6 +258,7 @@ export class blockChainService {
         // 预先加载交易.
         this._td.registerHandler("preLoadTransactions",
             async (td: taskDispatcher, t: task) => {
+                console.log("- start preLoadTransactions")
                 let txs: transaction[] = []
                 for (let txHash of this._status.currentBlockHeader.transactionHashs) {
                     txs.push(await this._db.getTransactionByHash(txHash))
@@ -251,6 +270,7 @@ export class blockChainService {
                 }
             },
             async (td: taskDispatcher, t: task) => {
+                console.log("- start rollback preLoadTransactions")
                 this._status.currentTransactions = []
             }
         )

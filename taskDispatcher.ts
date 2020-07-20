@@ -1,8 +1,5 @@
-import { v4 as uuidv4 } from 'uuid'
-
 export class task {
     name: string
-    id: string
     done: boolean
     inTransaction: boolean
 }
@@ -72,7 +69,13 @@ export class taskDispatcher {
                         throw new Error(`missing handler ${t.name}`)
                     }
         
-                    await this._handlerMap.get(t.name).processRollback(this, t)
+                    try {
+                        await this._handlerMap.get(t.name).processRollback(this, t)
+                    }
+                    catch(e) {
+                        console.log(`catch error in rollback: ${e}`)
+                        break
+                    }
                 }
             }
             this._transactionResolve()
@@ -84,7 +87,7 @@ export class taskDispatcher {
         }
     }
 
-    async newTask(name: string, inTransaction: boolean = false): Promise<string> {
+    async newTask(name: string, inTransaction: boolean = false): Promise<void> {
         if (!inTransaction) {
             if (!this._transactionResolved) {
                 await this._transactionPromise
@@ -93,7 +96,6 @@ export class taskDispatcher {
 
         let t = new task()
         t.name = name
-        t.id = uuidv4()
         t.done = false
         t.inTransaction = inTransaction
 
@@ -108,8 +110,6 @@ export class taskDispatcher {
             this._resolve(t)
             this._resolved = true
         }
-
-        return t.id
     }
 
     async abort() {
@@ -186,10 +186,11 @@ export class taskDispatcher {
                     }
                 }
                 catch(e) {
+                    console.log(`catch task error: ${e}`)
                     if (!this._transactionResolved) {
                         await this.rollback()
                     }
-                }                
+                }           
             }
 
             lifecircleResolve()
