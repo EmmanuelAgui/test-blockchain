@@ -1,6 +1,11 @@
-import { blockChainStatus, transaction, blockHeader } from './const'
+import { transaction, blockHeader } from './const'
+import { databaseService } from './databaseService'
 
-export class fakeNetworkService {
-    async downloadHeader(height: string): Promise<blockHeader> { return undefined }
-    async downloadTransaction(hash: string): Promise<transaction> { return undefined }
+export class fakeNetworkService extends databaseService {
+    constructor(path: string) {
+        super(path)
+    }
+
+    async downloadHeader(height: string): Promise<blockHeader> { return this.getBlockByHeight(height) }
+    async downloadTransaction(hash: string): Promise<transaction> { return this.getTransactionByHash(hash) }
 }

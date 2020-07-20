@@ -20,8 +20,8 @@ export function printBlockChainStatus(status: blockChainStatus) {
 
 export class blockChainService {
     /*private*/ _db = new databaseService('./test-db')
-    private _net = new fakeNetworkService()
-    private _td = new taskDispatcher()
+    /*private*/ _net = new fakeNetworkService('./fake-network-db')
+    /*private*/ _td = new taskDispatcher()
     /*private*/ _status: blockChainStatus
 
     private _updateUserBalance(address: string, value: Decimal | number | string): boolean {
@@ -59,6 +59,9 @@ export class blockChainService {
                 console.log("- start preDownloadBlockHeader")
                 let newHeight = new Decimal(this._status.currentBlockHeader.height).add(1).toString()
                 let bh = await this._net.downloadHeader(newHeight)
+                if (!bh) {
+                    throw new Error("dowload block failed!")
+                }
                 if (bh.height === newHeight &&
                     bh.preHash === this._status.currentBlockHeader.hash) {
                     // 记录新块头, 清除事务. 
@@ -96,6 +99,9 @@ export class blockChainService {
             async (td: taskDispatcher, t: task) => {
                 console.log("- start preDownloadBlockHeader(forward)")
                 let bh = await this._net.downloadHeader(this._status.currentBlockHeader.height)
+                if (!bh) {
+                    throw new Error("dowload block failed!")
+                }
                 if (bh.height === this._status.currentBlockHeader.height &&
                     bh.hash === this._status.currentBlockHeader.hash) {
                     // 找到同步点, 开始向后同步. 
@@ -136,7 +142,11 @@ export class blockChainService {
                 console.log("- start preDownloadTransactions")
                 let txs: transaction[] = []
                 for (let txHash of this._status.currentBlockHeader.transactionHashs) {
-                    txs.push(await this._net.downloadTransaction(txHash))
+                    let tx = await this._net.downloadTransaction(txHash)
+                    if (!tx) {
+                        throw new Error("dowload tx failed!")
+                    }
+                    txs.push(tx)
                 }
                 this._status.currentTransactions = txs
 
@@ -316,6 +326,7 @@ export class blockChainService {
 
     async init() {
         await this._db.open()
+        await this._net.open()
 
         let [block, tx] = this.makeGenesisBlock()
 
