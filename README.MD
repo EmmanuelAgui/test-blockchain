@@ -20,7 +20,7 @@
 + `aborter`实现了一个简单的中断器
 + `taskDispatcher`实现了任务调度器, 包括以下方法
     - `processTask`新增一个任务
-    - `regiterTaskProcessor`注册一个任务处理器
+    - `registerTaskProcessor`注册一个任务处理器
     - `abort`中断调度器
     - `restart`重启调度器
     - `start`开始任务调度
