@@ -68,7 +68,7 @@ async function test() {
             b.transactionHashs.push(t.hash)
             await service._net.batch([service._net.makeUpdateLatestBlockOperator(b)])
             await service._net.batch(service._net.makePutBlockOperators(b))
-            await service._net.batch(service._net.makeDelTransactionOperators(t))
+            await service._net.batch(service._net.makePutTransactionOperators(t))
 
             preHash = b.hash
         }

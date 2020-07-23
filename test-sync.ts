@@ -4,7 +4,6 @@ async function test() {
     try {
         let service = new blockChainService()
         await service.init();
-        await service.startRebuild();
 
         (async () => {
             try {
@@ -18,6 +17,13 @@ async function test() {
                 console.log(`======== coroutine error over ========`)
             }
         })()
+
+        await service.startRebuild();
+        let latestBlock = await service._net.getLatestBlock()
+        if (!latestBlock) {
+            throw new Error("missing remote latest block")
+        }
+        service.onReceiveNewBlock(latestBlock.hash, latestBlock.height, "")
     }
     catch(e) {
         console.log(`error in main ${e}`)

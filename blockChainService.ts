@@ -136,6 +136,9 @@ export class blockChainService {
 
         this._td.registerTaskProcessor("checkBlockAndTransactions",
             async (status: blockChainStatus, dbopts: databaseOperator[], block: blockHeader, transactions: transaction[], resolve: () => void) => {
+                if (block === undefined) {
+                    throw new Error("missing block!")
+                }
                 let height = new Decimal(block.height)
                 if (height.greaterThan(1)) {
                     // 等待上一个块完成处理.
@@ -157,6 +160,9 @@ export class blockChainService {
                 // 更新用户余额.
                 updateUserBalance(status.userBalance, status.currentBlockHeader.miner, 2)
                 for (let transaction of transactions) {
+                    if (transaction === undefined) {
+                        throw new Error("missing transation!")
+                    }
                     if (!updateUserBalance(status.userBalance, transaction.from, `-${transaction.value}`)) {
                         throw new Error(`check transaction failed! ${transaction.hash}`)
                     }
@@ -292,9 +298,9 @@ export class blockChainService {
 
         let status = this._copyStatus()
         let dbopts: databaseOperator[] = []
+        this._blockInfoCache.clear()
         await this._td.processTask("syncBlock", status, dbopts)
         await Promise.all(this._blockInfoCache.values())
-        this._blockInfoCache.clear()
         if (!this._ab.isAborted()) {
             this._status = status
             await this._db.batch(dbopts)
@@ -304,5 +310,33 @@ export class blockChainService {
             this._syncInfo.maxHeightBlockHash = this._status.currentBlockHeader.hash
         }
         this._unlock()
+    }
+
+    async onReceiveNewBlock(hash: string, height: string, peerInfo: string) {
+        let h = new Decimal(height)
+        if (h.greaterThan(new Decimal(this._syncInfo.maxHeight))) {
+            this._ab.abort("receive a higer fork!")
+            await this._lock()
+            this._syncInfo.maxHeight = height
+            this._syncInfo.maxHeightBlockHash = hash
+            this._syncInfo.peerInfo = peerInfo
+            this._syncInfo.syncMode = "network"
+            this._ab.reset()
+
+            let status = this._copyStatus()
+            let dbopts: databaseOperator[] = []
+            this._blockInfoCache.clear()
+            await this._td.processTask("syncBlock", status, dbopts)
+            await Promise.all(this._blockInfoCache.values())
+            if (!this._ab.isAborted()) {
+                this._status = status
+                await this._db.batch(dbopts)
+            }
+            else {
+                this._syncInfo.maxHeight = this._status.currentBlockHeader.height
+                this._syncInfo.maxHeightBlockHash = this._status.currentBlockHeader.hash
+            }
+            this._unlock()
+        }
     }
 }
