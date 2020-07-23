@@ -294,6 +294,7 @@ export class blockChainService {
         let dbopts: databaseOperator[] = []
         await this._td.processTask("syncBlock", status, dbopts)
         await Promise.all(this._blockInfoCache.values())
+        this._blockInfoCache.clear()
         if (!this._ab.isAborted()) {
             this._status = status
             await this._db.batch(dbopts)
