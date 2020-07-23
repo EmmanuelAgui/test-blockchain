@@ -7,7 +7,8 @@
     "test-gb": "node -r ts-node/register test-generate-blocks.ts",
     "test-gf": "node -r ts-node/register test-generate-fork.ts",
     "test-sync": "node -r ts-node/register test-sync.ts",
-    "test-rebuild": "node -r ts-node/register test-rebuild.ts"
+    "test-rebuild": "node -r ts-node/register test-rebuild.ts",
+    "test-abort-sync": "node -r ts-node/register test-abort-sync.ts"
   },
   "author": "samlior",
   "license": "ISC",
