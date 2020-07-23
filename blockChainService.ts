@@ -1,312 +1,178 @@
 
 import Decimal from 'decimal.js'
 
-import { blockChainStatus, transaction, blockHeader } from './@types'
-import { taskDispatcher, task } from './taskDispatcher'
+import { blockChainStatus, transaction, blockHeader, syncInfo } from './@types'
+import { taskDispatcher } from './taskDispatcher'
 import { fakeNetworkService } from './fakeNetworkService'
-import { databaseService } from './databaseService'
+import { databaseService, databaseOperator } from './databaseService'
+import { aborter } from './aborter'
 
-export function printBlockChainStatus(status: blockChainStatus) {
+export function printBlockChain(status: blockChainStatus, info: syncInfo) {
     console.log("userBalance:")
     for (let key of status.userBalance.keys()) {
         console.log(`   ${key} => ${status.userBalance.get(key)}`)
     }
-    console.log(`syncMode: ${status.syncMode}`)
-    console.log(`maxHeight: ${status.maxHeight}`)
     console.log(`currentBlockHeader: ${JSON.stringify(status.currentBlockHeader)}`)
     console.log(`currentTransactions: ${JSON.stringify(status.currentTransactions)}`)
+    console.log(`syncMode: ${info.syncMode}`)
+    console.log(`peerInfo: ${info.peerInfo}`)
+    console.log(`maxHeight: ${info.maxHeight}`)
+    console.log(`maxHeightBlockHash: ${info.maxHeightBlockHash}`)
     console.log("------------------------------")
+}
+
+// 更新用户余额.
+function updateUserBalance(userBalance: Map<string, string>, address: string, value: Decimal | number | string): boolean {
+    let dvalue = value instanceof Decimal ? value : new Decimal(value)
+    let balance = userBalance.has(address) ? new Decimal(userBalance.get(address)) : new Decimal(0)
+    let newBalance = balance.add(dvalue)
+    if (newBalance.lessThan(0)) {
+        return false
+    }
+    userBalance.set(address, newBalance.toString())
+    return true
 }
 
 export class blockChainService {
     /*private*/ _db = new databaseService('./test-db')
     /*private*/ _net = new fakeNetworkService('./fake-network-db')
-    /*private*/ _td = new taskDispatcher()
+    /*private*/ _td = new taskDispatcher<any>()
     /*private*/ _status: blockChainStatus
+    /*private*/ _syncInfo: syncInfo
+    private _blockInfoCache = new Map<string, Promise<unknown>>()
 
-    // 更新用户余额.
-    private _updateUserBalance(address: string, value: Decimal | number | string): boolean {
-        let dvalue = value instanceof Decimal ? value : new Decimal(value)
-        let balance = this._status.userBalance.has(address) ? new Decimal(this._status.userBalance.get(address)) : new Decimal(0)
-        let newBalance = balance.add(dvalue)
-        if (newBalance.lessThan(0)) {
-            return false
-        }
-        this._status.userBalance.set(address, newBalance.toString())
-        return true
-    }
+    /*private*/ _ab = new aborter()
+    private _lockResolved: boolean = true
+    private _lockPromise: Promise<void>
+    private _lockResolve: () => void
 
-    // 检查用户余额.
-    private _checkUserBalance(address: string, value: Decimal | number | string, flag: 0 | 1 | 2 | 3 = 0): boolean {
-        let dvalue = value instanceof Decimal ? value : new Decimal(value)
-        let balance = this._status.userBalance.has(address) ? new Decimal(this._status.userBalance.get(address)) : new Decimal(0)
-        if (flag === 0) {
-            return balance.greaterThanOrEqualTo(dvalue)
-        }
-        else if (flag === 1) {
-            return balance.greaterThan(dvalue)
-        }
-        else if (flag === 2) {
-            return balance.lessThanOrEqualTo(dvalue)
-        }
-        else {
-            return balance.lessThan(dvalue)
-        }
+    private _isSyncFromNetwork(): boolean {
+        return this._syncInfo.syncMode === "network"
     }
 
     constructor() {
-        // 预下载区块头.
-        this._td.registerHandler("preDownloadBlockHeader",
-            async (td: taskDispatcher, t: task) => {
-                console.log("- start preDownloadBlockHeader")
-                let newHeight = new Decimal(this._status.currentBlockHeader.height).add(1).toString()
-                let bh = await this._net.downloadHeader(newHeight)
+    
+        this._td.registerTaskProcessor("syncBlock", async (status: blockChainStatus, dbopts: databaseOperator[]) => {            
+            let bh: blockHeader
+            try {
+                bh = await this._ab.abortablePromise(this._td.processTask("rollback", status, dbopts))
+            }
+            catch(err) {
+                console.log(`syncBlock catch error: ${err}`)
+                this._ab.abort()
+                return
+            }
+            
+            let maxHeight = new Decimal(this._syncInfo.maxHeight)
+            for (let height = new Decimal(bh.height); height.lessThanOrEqualTo(maxHeight); height = height.add(1)) {
+
+                let blockPromise = height.equals(new Decimal(bh.height)) ?
+                    Promise.resolve(bh) :
+                    this._td.processTask("preDownloadBlockHeader", height.toString())
+
+                let p = new Promise((resolve, reject) => {
+                    blockPromise.then(block => {
+                        this._td.processTask("preDownloadTransactions", block).then(transactions => {
+                            this._td.processTask("checkBlockAndTransactions", status, dbopts, block, transactions, resolve).catch(err => reject(err))
+                        }, err => reject(err))
+                    }, err => reject(err))
+                }).catch(err => {
+                    console.log(`syncBlock catch error: ${err}`)
+                    this._ab.abort()
+                })
+
+                this._blockInfoCache.set(height.toString(), p)
+            }
+        });
+
+        this._td.registerTaskProcessor("rollback", async (status: blockChainStatus, dbopts: databaseOperator[]) => {
+            let findForkPoint = async () => {
+                let newHeight = new Decimal(status.currentBlockHeader.height).add(1).toString()
+                let bh = await this._ab.abortablePromise(this._isSyncFromNetwork() ? this._net.downloadHeader(newHeight) : this._db.getBlockByHeight(newHeight))
                 if (!bh) {
                     throw new Error("dowload block failed!")
                 }
                 if (bh.height === newHeight &&
-                    bh.preHash === this._status.currentBlockHeader.hash) {
-                    // 记录新块头, 清除事务. 
-                    this._status.currentBlockHeader = bh
-                    this._status.currentTransactions = []
-                    return {
-                        name: "preDownloadTransactions"
-                    }
+                    bh.preHash === status.currentBlockHeader.hash) {
+                    return bh
                 }
-                else {
-                    return {
-                        name: "preDownloadBlockHeader(forward)"
-                    }
+            }
+            
+            let bh: blockHeader = await this._ab.abortablePromise(findForkPoint())
+            while (!bh) {
+                let currentHeight = new Decimal(status.currentBlockHeader.height)
+                if (currentHeight.equals(0)) {
+                    throw new Error("genesis block not match!")
                 }
-            },
-            async (td: taskDispatcher, t: task) => {
-                console.log("- start rollback preDownloadBlockHeader")
-                let height = new Decimal(this._status.currentBlockHeader.height)
-                let blockHeader: blockHeader
-                if (height.equals(0)) {
-                    blockHeader = this.makeGenesisBlock()[0] as blockHeader
-                }
-                else {
-                    blockHeader = await this._db.getBlockByHeight(height.sub(1).toString())
-                }
-                if (!blockHeader) {
+
+                dbopts = dbopts.concat(this._db.makeDelTransactionsOperators(
+                    await this._ab.abortablePromise(
+                        Promise.all(status.currentBlockHeader.transactionHashs.map(txHash => {
+                            return this._db.getTransactionByHash(txHash)
+                })))))
+                dbopts = dbopts.concat(this._db.makeDelBlockOperators(status.currentBlockHeader))
+
+                let lastHeight = currentHeight.sub(1)
+                status.currentBlockHeader = await this._ab.abortablePromise(this._db.getBlockByHeight(lastHeight.toString()))
+                if (!status.currentBlockHeader) {
                     throw new Error("missing block!")
                 }
-                this._status.currentBlockHeader = blockHeader
-            }
-        )
 
-        // 预下载区块头(向前回滚).
-        this._td.registerHandler("preDownloadBlockHeader(forward)",
-            async (td: taskDispatcher, t: task) => {
-                console.log("- start preDownloadBlockHeader(forward)")
-                let bh = await this._net.downloadHeader(this._status.currentBlockHeader.height)
-                if (!bh) {
-                    throw new Error("dowload block failed!")
-                }
-                if (bh.height === this._status.currentBlockHeader.height &&
-                    bh.hash === this._status.currentBlockHeader.hash) {
-                    // 找到同步点, 开始向后同步. 
-                    return {
-                        name: "preDownloadBlockHeader"
+                bh = await this._ab.abortablePromise(findForkPoint())
+            }
+            return bh
+        })
+
+        this._td.registerTaskProcessor("preDownloadBlockHeader", async (height: string) => {
+            return await this._ab.abortablePromise(this._isSyncFromNetwork() ? this._net.downloadHeader(height) : this._db.getBlockByHeight(height))
+        })
+
+        this._td.registerTaskProcessor("preDownloadTransactions", async (block: blockHeader) => {
+            return await this._ab.abortablePromise(Promise.all(
+                this._isSyncFromNetwork() ?
+                block.transactionHashs.map(hash => this._net.downloadTransaction(hash)) :
+                block.transactionHashs.map(hash => this._db.getTransactionByHash(hash))))
+        })
+
+        this._td.registerTaskProcessor("checkBlockAndTransactions",
+            async (status: blockChainStatus, dbopts: databaseOperator[], block: blockHeader, transactions: transaction[], resolve: () => void) => {
+                let height = new Decimal(block.height)
+                if (height.greaterThan(1)) {
+                    // 等待上一个块完成处理.
+                    await this._ab.abortablePromise(this._blockInfoCache.get(height.sub(1).toString()))
+                    if (status.currentBlockHeader.hash !== block.preHash) {
+                        throw new Error(`preHash not match! height: ${status.currentBlockHeader.height} ${block.height}`)
                     }
                 }
                 else {
-                    let height = new Decimal(this._status.currentBlockHeader.height)
-                    let blockHeader: blockHeader
-                    if (height.equals(0)) {
-                        throw new Error("genesis block not match!")
-                    }
-                    else {
-                        blockHeader = await this._db.getBlockByHeight(height.sub(1).toString())
-                    }
-                    if (!blockHeader) {
-                        throw new Error("missing block!")
-                    }
-                    this._status.currentBlockHeader = blockHeader
-                    return {
-                        name: "preDownloadBlockHeader(forward)"
-                    }
-                }
-            },
-            async (td: taskDispatcher, t: task) => {
-                console.log("- start rollback preDownloadBlockHeader(forward)")
-                let newHeight = new Decimal(this._status.currentBlockHeader.height).add(1).toString()
-                let bh = await this._db.getBlockByHeight(newHeight)
-                this._status.currentBlockHeader = bh
-                this._status.currentTransactions = []
-            }
-        )
-
-        // 预下载交易.
-        this._td.registerHandler("preDownloadTransactions",
-            async (td: taskDispatcher, t: task) => {
-                console.log("- start preDownloadTransactions")
-                let txs: transaction[] = []
-                for (let txHash of this._status.currentBlockHeader.transactionHashs) {
-                    let tx = await this._net.downloadTransaction(txHash)
-                    if (!tx) {
-                        throw new Error("dowload tx failed!")
-                    }
-                    txs.push(tx)
-                }
-                this._status.currentTransactions = txs
-
-                return {
-                    name: "checkTransactions"
-                }
-            },
-            async (td: taskDispatcher, t: task) => {
-                console.log("- start rollback preDownloadTransactions")
-                this._status.currentTransactions = []
-            }
-        )
-
-        // 校验交易.
-        this._td.registerHandler("checkTransactions",
-            async (td: taskDispatcher, t: task) => {
-                console.log("- start checkTransactions")
-                for (let transaction of this._status.currentTransactions) {
-                    if (!this._checkUserBalance(transaction.from, transaction.value)) {
-                        throw new Error("check transaction failed!")
+                    if (block.preHash !== (this.makeGenesisBlock()[0] as blockHeader).hash) {
+                        throw new Error(`preHash not match to genesis block! ${block.height}`)
                     }
                 }
 
-                for (let transaction of this._status.currentTransactions) {
-                    this._updateUserBalance(transaction.from, `-${transaction.value}`)
-                    this._updateUserBalance(transaction.to, transaction.value)
+                // 设置为当前区块信息.
+                status.currentBlockHeader = block
+                status.currentTransactions = transactions
+
+                // 更新用户余额.
+                updateUserBalance(status.userBalance, status.currentBlockHeader.miner, 2)
+                for (let transaction of transactions) {
+                    if (!updateUserBalance(status.userBalance, transaction.from, `-${transaction.value}`)) {
+                        throw new Error(`check transaction failed! ${transaction.hash}`)
+                    }
+                    updateUserBalance(status.userBalance, transaction.to, transaction.value)
                 }
 
-                return {
-                    name: "checkBlockHeader"
-                }
-            },
-            async (td: taskDispatcher, t: task) => {
-                console.log("- start rollback checkTransactions")
-                for (let transaction of this._status.currentTransactions) {
-                    this._updateUserBalance(transaction.to, `-${transaction.value}`)
-                    this._updateUserBalance(transaction.from, transaction.value)
-                }
-            }
-        )
-
-        // 校验块头.
-        this._td.registerHandler("checkBlockHeader",
-            async (td: taskDispatcher, t: task) => {
-                console.log("- start checkBlockHeader")
-
-                // 发放矿工工资.
-                this._updateUserBalance(this._status.currentBlockHeader.miner, 2)
-                // 判断是否到达最大高度.
-                let blockHeight = new Decimal(this._status.currentBlockHeader.height)
-                let localMaxHeight = new Decimal(this._status.maxHeight)
-                let flag = blockHeight.greaterThanOrEqualTo(localMaxHeight)
-                if (flag) {
-                    this._status.maxHeight = this._status.currentBlockHeader.height
-                }
-
-                // 持久化最新的块及状态信息.
-                await this._persistBlockChain()
+                // 生成数据库操作记录.
+                dbopts = dbopts.concat(this._db.makePutBlockOperators(status.currentBlockHeader))
+                dbopts = dbopts.concat(this._db.makeUpdateLatestBlockOperator(status.currentBlockHeader))
+                dbopts = dbopts.concat(this._db.makePutTransactionsOperators(status.currentTransactions))
 
                 // only for debug.
-                printBlockChainStatus(this._status)
+                printBlockChain(status, this._syncInfo)
 
-                // 没有达到最大高度, 继续同步.
-                if (!flag) {
-                    this._status.syncMode === "network" ? this.startSync() : this.startRebuild()
-                }
-                else if (this._status.syncMode === "database") {
-                    // 重建完成则开始网络同步.
-                    // 这里为了方便, 直接调用.
-                    let remoteLatestBlock = await this._net.getLatestBlock()
-                    if (remoteLatestBlock) {
-                        this.onNewBlock(remoteLatestBlock)
-                    }
-                }
-                return {
-                    commit: true
-                }
-            },
-            async (td: taskDispatcher, t: task) => {
-                console.log("- start rollback checkBlockHeader")
-                this._updateUserBalance(this._status.currentBlockHeader.miner, -2)
-                if (this._status.syncMode === "network") {
-                    await this._deleteBlockChain()
-                }
-            }
-        )
-
-        // 预加载区块头.
-        this._td.registerHandler("preLoadBlockHeader",
-            async (td: taskDispatcher, t: task) => {
-                console.log("- start preLoadBlockHeader")
-                let newHeight = new Decimal(this._status.currentBlockHeader.height).add(1).toString()
-                let block = await this._db.getBlockByHeight(newHeight)
-                if (!block) {
-                    throw new Error(`missing block in ${newHeight}`)
-                }
-                if (block.height === newHeight &&
-                    block.preHash === this._status.currentBlockHeader.hash) {
-                    this._status.currentBlockHeader = block
-                    this._status.currentTransactions = []
-    
-                    return {
-                        name: "preLoadTransactions"
-                    }
-                }
-                else {
-                    throw new Error(`wrong block info in height ${newHeight}`)
-                }
-            },
-            async (td: taskDispatcher, t: task) => {
-                console.log("- start rollback preLoadBlockHeader")
-                let height = new Decimal(this._status.currentBlockHeader.height)
-                let blockHeader: blockHeader
-                if (height.equals(0)) {
-                    blockHeader = this.makeGenesisBlock()[0] as blockHeader
-                }
-                else {
-                    blockHeader = await this._db.getBlockByHeight(height.sub(1).toString())
-                }
-                if (!blockHeader) {
-                    throw new Error("missing block!")
-                }
-                this._status.currentBlockHeader = blockHeader
-                this._status.currentTransactions = []
-            }
-        )
-
-        // 预先加载交易.
-        this._td.registerHandler("preLoadTransactions",
-            async (td: taskDispatcher, t: task) => {
-                console.log("- start preLoadTransactions")
-                let txs: transaction[] = []
-                for (let txHash of this._status.currentBlockHeader.transactionHashs) {
-                    txs.push(await this._db.getTransactionByHash(txHash))
-                }
-                this._status.currentTransactions = txs
-
-                return {
-                    name: "checkTransactions"
-                }
-            },
-            async (td: taskDispatcher, t: task) => {
-                console.log("- start rollback preLoadTransactions")
-                this._status.currentTransactions = []
-            }
-        )
-    }
-
-    // 持久化区块信息.
-    private async _persistBlockChain() {
-        await this._db.putBlock(this._status.currentBlockHeader, this._status.syncMode === "network")
-        await Promise.all(this._db.putTransactions(this._status.currentTransactions))
-    }
-
-    // 归滚区块信息.
-    private async _deleteBlockChain() {
-        await this._db.delBlock(this._status.currentBlockHeader, this._status.syncMode === "network")
-        await Promise.all(this._db.delTransactions(this._status.currentTransactions))
+                resolve()
+        })
     }
 
     // 获取创世块.
@@ -341,80 +207,101 @@ export class blockChainService {
         await this._net.open()
 
         let [block, tx] = this.makeGenesisBlock()
-
         this._status = {
             userBalance: new Map<string, string>(),
-            maxHeight: "0",
             currentBlockHeader: block as blockHeader,
             currentTransactions: []
         }
         this._status.currentTransactions.push(tx as transaction)
         this._status.userBalance.set((tx as transaction).to, (tx as transaction).value)
-        
-        await this._persistBlockChain()
+
+        this._syncInfo = {
+            syncMode: "database",
+            maxHeight: (block as blockHeader).height,
+            maxHeightBlockHash: block.hash,
+            peerInfo: ""
+        }
     }
 
-    // 开始从本地重建区块.
+    private async _lock() {
+        while(!this._lockResolved) {
+            await this._lockPromise
+        }
+        this._lockResolved = false
+        this._lockPromise = new Promise((resolve) => this._lockResolve = resolve)
+    }
+
+    private _unlock() {
+        this._lockResolved = true
+        this._lockResolve()
+    }
+
+    private _copyStatus(): blockChainStatus {
+        let b: blockHeader = {
+            hash: undefined,
+            preHash: undefined,
+            miner: undefined,
+            height: undefined,
+            diff: undefined,
+            nonce: undefined,
+            transactionHashs: undefined
+        }
+        for (let key in this._status.currentBlockHeader) {
+            b[key] = this._status.currentBlockHeader[key]
+        }
+
+        let txs: transaction[] = []
+        for (let transaction of this._status.currentTransactions) {
+            let tx: transaction = {
+                hash: undefined,
+                from: undefined,
+                to: undefined,
+                value: undefined,
+                nonce: undefined,
+                signature: undefined
+            }
+            for (let key in transaction) {
+                tx[key] = transaction[key]
+            }
+            txs.push(tx)
+        }
+
+        let ub = new Map<string, string>()
+        for (let key of this._status.userBalance.keys()) {
+            ub.set(key, this._status.userBalance.get(key))
+        }
+
+        return {
+            currentBlockHeader: b,
+            currentTransactions: txs,
+            userBalance: ub
+        }
+    }
+
     async startRebuild() {
+        await this._lock()
         let latestBlock = await this._db.getLatestBlock()
         if (!latestBlock) {
+            this._unlock()
             return
         }
-        let blockHeight = new Decimal(this._status.currentBlockHeader.height)
-        let latestBlockHeight = new Decimal(latestBlock.height)
-        if (latestBlockHeight.greaterThan(blockHeight)) {
-            await this._td.transaction()
-            this._status.syncMode = "database"
-            blockHeight = new Decimal(this._status.currentBlockHeader.height)
-            latestBlock = await this._db.getLatestBlock()
-            if (!latestBlock) {
-                await this._td.rollback()
-                return
-            }
-            latestBlockHeight = new Decimal(latestBlock.height)
-            if (latestBlockHeight.greaterThan(blockHeight)) {
-                this._status.maxHeight = latestBlock.height
-                await this._td.newTask("preLoadBlockHeader", true)
-            }
-            else {
-                await this._td.rollback()
-            }
-        }
-    }
+        this._syncInfo.maxHeight = latestBlock.height
+        this._syncInfo.maxHeightBlockHash = latestBlock.hash
+        this._syncInfo.syncMode = "database"
+        this._ab.reset()
 
-    // 开始从网络同步.
-    async startSync() {
-        let blockHeight = new Decimal(this._status.currentBlockHeader.height)
-        let localMaxHeight = new Decimal(this._status.maxHeight)
-        if (localMaxHeight.greaterThan(blockHeight)) {
-            await this._td.transaction()
-            this._status.syncMode = "network"
-            blockHeight = new Decimal(this._status.currentBlockHeader.height)
-            localMaxHeight = new Decimal(this._status.maxHeight)
-            if (localMaxHeight.greaterThan(blockHeight)) {
-                await this._td.newTask("preDownloadBlockHeader", true)
-            }
-            else {
-                await this._td.rollback()
-            }
+        let status = this._copyStatus()
+        let dbopts: databaseOperator[] = []
+        await this._td.processTask("syncBlock", status, dbopts)
+        await Promise.all(this._blockInfoCache.values())
+        if (!this._ab.isAborted()) {
+            this._status = status
+            await this._db.batch(dbopts)
         }
-    }
-
-    // 接受到最新区块通知.
-    async onNewBlock(block: blockHeader) {
-        let blockHeight = new Decimal(block.height)
-        let localMaxHeight = new Decimal(this._status.maxHeight)
-        if (blockHeight.greaterThan(localMaxHeight)) {
-            await this._td.transaction()
-            this._status.syncMode = "network"
-            localMaxHeight = new Decimal(this._status.maxHeight)
-            if (blockHeight.greaterThan(localMaxHeight)) {
-                this._status.maxHeight = block.height
-                await this._td.newTask("preDownloadBlockHeader", true)
-            }
-            else {
-                await this._td.rollback()
-            }
+        else {
+            this._syncInfo.maxHeight = this._status.currentBlockHeader.height
+            this._syncInfo.maxHeightBlockHash = this._status.currentBlockHeader.hash
         }
+        this._unlock()
     }
 }

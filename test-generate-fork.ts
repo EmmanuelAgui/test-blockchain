@@ -39,8 +39,8 @@ async function test() {
                 txs.push(tx)
             }
 
-            await service._net.putBlock(localBlock)
-            await Promise.all(service._net.putTransactions(txs))
+            await service._net.batch(service._net.makePutBlockOperators(localBlock))
+            await service._net.batch(service._net.makePutTransactionsOperators(txs))
         }
 
         // 随机生成分叉高度之后的块.
@@ -66,8 +66,9 @@ async function test() {
                 signature: "000"
             }
             b.transactionHashs.push(t.hash)
-            await service._net.putBlock(b, true)
-            await service._net.putTransaction(t)
+            await service._net.batch([service._net.makeUpdateLatestBlockOperator(b)])
+            await service._net.batch(service._net.makePutBlockOperators(b))
+            await service._net.batch(service._net.makeDelTransactionOperators(t))
 
             preHash = b.hash
         }

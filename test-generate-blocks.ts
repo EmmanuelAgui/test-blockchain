@@ -35,8 +35,9 @@ async function test() {
                 signature: "000"
             }
             b.transactionHashs.push(t.hash)
-            await service._db.putBlock(b, true)
-            await service._db.putTransaction(t)
+            await service._db.batch([service._db.makeUpdateLatestBlockOperator(b)])
+            await service._db.batch(service._db.makePutBlockOperators(b))
+            await service._db.batch(service._db.makePutTransactionOperators(t))
 
             preHash = b.hash
         }

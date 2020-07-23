@@ -2,6 +2,12 @@ import levelup from 'levelup'
 import leveldown from 'leveldown'
 import { NotFoundError } from 'level-errors'
 
+export type databaseOperator = {
+    type: "put" | "del",
+    key: string,
+    value?: any
+}
+
 export class database {
     private _db: any;
 
@@ -93,11 +99,7 @@ export class database {
         })
     }
 
-    batch(operations: {
-        type: "put" | "del",
-        key: string,
-        value?: any
-    }[]) {
+    batch(operations: databaseOperator[]) {
         return new Promise((resolve, reject) => {
             this._db.batch(operations, (err) => {
                 if (err) {

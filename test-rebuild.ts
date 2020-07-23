@@ -4,8 +4,7 @@ async function test() {
     try {
         let service = new blockChainService()
         await service.init()
-        await service._net.clearAll()
-        await service.startRebuild();
+        await service._net.clearAll();
 
         (async () => {
             try {
@@ -19,6 +18,8 @@ async function test() {
                 console.log(`======== coroutine error over ========`)
             }
         })()
+
+        await service.startRebuild();
     }
     catch(e) {
         console.log(`error in main ${e}`)

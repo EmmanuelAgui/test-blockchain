@@ -2,14 +2,21 @@ export type blockChainStatus = {
     // 用户余额.
     userBalance: Map<string, string>
 
-    // 当前同步模式.
-    syncMode?: "network" | "database"
-    // 同步的目标高度.
-    maxHeight: string
     // 当前块头.
     currentBlockHeader: blockHeader
     // 当前块的交易.
     currentTransactions: transaction[]
+}
+
+export type syncInfo = {
+    // 当前同步模式.
+    syncMode: "database" | "network",
+    // 同步的目标高度.
+    maxHeight: string
+    // 同步的目标块哈希.
+    maxHeightBlockHash: string
+    // 同步的目标节点.
+    peerInfo: string
 }
 
 export type transaction = {

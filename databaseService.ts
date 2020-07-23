@@ -1,6 +1,6 @@
-import { database } from './database'
+import { database, databaseOperator } from './database'
 import { blockChainStatus, transaction, blockHeader } from './@types'
-import Decimal from 'decimal.js'
+export { databaseOperator } from './database'
 
 /*
 export function txFromJson(data: any): transaction {
@@ -126,11 +126,7 @@ export class databaseService extends database {
         return await this.getBlockByHash(await this.get(`height:${height}`))
     }
 
-    private _makeUpdateLatestBlockOperate(blockHeader: blockHeader): {
-        type: "put" | "del",
-        key: string,
-        value?: any
-    } {
+    makeUpdateLatestBlockOperator(blockHeader: blockHeader): databaseOperator {
         return {
             type: "put",
             key: "lastestBlockHash",
@@ -138,46 +134,9 @@ export class databaseService extends database {
         }
     }
 
-    private async _makeRollbackLatestBlockOperate(): Promise<{
-        type: "put" | "del",
-        key: string,
-        value?: any
-    }> {
-        let block = await this.getLatestBlock()
-        if (!block) {
-            return {
-                type: "del",
-                key: "lastestBlockHash"
-            }
-        }
-        let lastHeight = new Decimal(block.height).sub(1)
-        if (lastHeight.equals(0)) {
-            return {
-                type: "del",
-                key: "lastestBlockHash"
-            }
-        }
-
-        let lastBlock = await this.getBlockByHeight(lastHeight.toString())
-        if (lastBlock) {
-            return {
-                type: "put",
-                key: "lastestBlockHash",
-                value: lastBlock.hash
-            }
-        }
-        else {
-            throw new Error("missing last block!")
-        }
-    }
-
-    async putBlock(blockHeader: blockHeader, updateLastest: boolean = false): Promise<void> {
+    makePutBlockOperators(blockHeader: blockHeader) {
         let map = formatBlockHeaderRecord(blockHeader)
-        let opArr: {
-            type: "put" | "del",
-            key: string,
-            value?: any
-        }[] = []
+        let opArr: databaseOperator[] = []
         for (let key of map.keys()) {
             opArr.push({
                 type: "put",
@@ -185,19 +144,12 @@ export class databaseService extends database {
                 value: map.get(key)
             })
         }
-        if (updateLastest) {
-            opArr.push(this._makeUpdateLatestBlockOperate(blockHeader))
-        }
-        await this.batch(opArr)
+        return opArr
     }
 
-    async putTransaction(tx: transaction): Promise<void> {
+    makePutTransactionOperators(tx: transaction) {
         let map = formatTransactionRecord(tx)
-        let opArr: {
-            type: "put" | "del",
-            key: string,
-            value?: any
-        }[] = []
+        let opArr: databaseOperator[] = []
         for (let key of map.keys()) {
             opArr.push({
                 type: "put",
@@ -205,49 +157,46 @@ export class databaseService extends database {
                 value: map.get(key)
             })
         }
-        await this.batch(opArr)
+        return opArr
     }
 
-    putTransactions(transactions: transaction[]): Promise<void>[] {
-        return transactions.map(tx => this.putTransaction(tx))
+    makePutTransactionsOperators(transactions: transaction[]) {
+        let opArr: databaseOperator[] = []
+        transactions.forEach((v) => {
+            opArr = opArr.concat(this.makePutTransactionOperators(v))
+        })
+        return opArr
     }
 
-    async delBlock(blockHeader: blockHeader, rollback: boolean = false): Promise<void> {
+    makeDelBlockOperators(blockHeader: blockHeader) {
         let map = formatBlockHeaderRecord(blockHeader)
-        let opArr: {
-            type: "put" | "del",
-            key: string,
-            value?: any
-        }[] = []
+        let opArr: databaseOperator[] = []
         for (let key of map.keys()) {
             opArr.push({
                 type: "del",
                 key: key
             })
         }
-        if (rollback) {
-            opArr.push(await this._makeRollbackLatestBlockOperate())
-        }
-        await this.batch(opArr)
+        return opArr
     }
 
-    async delTransaction(tx: transaction): Promise<void> {
+    makeDelTransactionOperators(tx: transaction) {
         let map = formatTransactionRecord(tx)
-        let opArr: {
-            type: "put" | "del",
-            key: string,
-            value?: any
-        }[] = []
+        let opArr: databaseOperator[] = []
         for (let key of map.keys()) {
             opArr.push({
                 type: "del",
                 key: key,
             })
         }
-        await this.batch(opArr)
+        return opArr
     }
 
-    delTransactions(transactions: transaction[]): Promise<void>[] {
-        return transactions.map(tx => this.delTransaction(tx))
+    makeDelTransactionsOperators(transactions: transaction[]) {
+        let opArr: databaseOperator[] = []
+        transactions.forEach((v) => {
+            opArr = opArr.concat(this.makeDelTransactionOperators(v))
+        })
+        return opArr
     }
 }
