@@ -284,6 +284,7 @@ export class blockChainService {
         }
     }
 
+    // 从本地数据中重建.
     async startRebuild() {
         await this._lock()
         let latestBlock = await this._db.getLatestBlock()
@@ -312,11 +313,16 @@ export class blockChainService {
         this._unlock()
     }
 
+    // 接受到一个新的块.
     async onReceiveNewBlock(hash: string, height: string, peerInfo: string) {
         let h = new Decimal(height)
         if (h.greaterThan(new Decimal(this._syncInfo.maxHeight))) {
             this._ab.abort("receive a higer fork!")
             await this._lock()
+            if (h.lessThanOrEqualTo(new Decimal(this._syncInfo.maxHeight))) {
+                this._unlock()
+                return
+            }
             this._syncInfo.maxHeight = height
             this._syncInfo.maxHeightBlockHash = hash
             this._syncInfo.peerInfo = peerInfo

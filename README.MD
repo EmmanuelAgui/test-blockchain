@@ -17,11 +17,10 @@
 + `database`封装了levelup及leveldown两个库, 实现了leveldb数据库
 + `databaseService`继承自`database`, 对储存读取块及交易进行了业务封装
 + `fakeNetworkService`继承自`databaseService`, 也是一个leveldb数据库, 模拟远程节点的数据
++ `aborter`实现了一个简单的中断器
 + `taskDispatcher`实现了任务调度器, 包括以下方法
-    - `newTask`新增一个任务
-    - `transaction`尝试获取一个事务(此处的事务是数据库中的事务概念, 和区块链无关)
-    - `commit`提交事务
-    - `rollback`回滚事务
+    - `processTask`新增一个任务
+    - `regiterTaskProcessor`注册一个任务处理器
     - `abort`中断调度器
     - `restart`重启调度器
     - `start`开始任务调度
@@ -59,4 +58,10 @@ npm run test-sync
 ```
 
 根据本地数据库中的数据重建后从远程节点同步数据
+
+```
+npm run test-abort-sync
+```
+
+在同步进行时, 接受到了一个高度更高的分支, 中断当前同步, 从新的分支重新开始同步
 
